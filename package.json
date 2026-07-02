@@ -1,0 +1,29 @@
+{
+  "name": "forkcast",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ForkCast — AI recipe planning, budgeting, shopping lists, and receipt-powered pricing.",
+  "scripts": {
+    "dev": "netlify dev",
+    "dev:vite": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "gen:icons": "node scripts/gen-icons.mjs"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "@netlify/functions": "^2.8.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "sharp": "^0.33.5",
+    "vite": "^5.4.8",
+    "vite-plugin-pwa": "^0.20.5"
+  }
+}

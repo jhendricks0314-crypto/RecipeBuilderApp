@@ -1,0 +1,42 @@
+# ForkCast — Netlify configuration
+# Local testing:  netlify dev   (serves Vite + Functions + Blobs together)
+# Deploy:         push to a repo connected to Netlify, or `netlify deploy --prod`
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  # sharp ships native binaries; let Netlify include them for the image function.
+  external_node_modules = ["sharp"]
+
+[dev]
+  command = "npm run dev:vite"
+  targetPort = 5173
+  port = 8888
+  framework = "#custom"
+  autoLaunch = false
+
+# Friendly /api/* alias in front of the raw function paths.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# SPA fallback — every other route renders the React app.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Baseline security headers.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(self), camera=(self)"
