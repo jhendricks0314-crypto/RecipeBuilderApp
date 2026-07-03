@@ -56,20 +56,36 @@ async function cacheSet(key, value) {
 }
 
 // --- fetch (optionally via a headless-render proxy) -------------------------
+// Works with two kinds of renderer:
+//   • Browserless (cloud or self-hosted): POST /content?token=... { url }
+//     returns the raw rendered HTML as the response body.
+//   • A custom Playwright/Puppeteer service: POST { url } returns JSON { html }.
+// We auto-target /content when only a base URL is given, attach a token from
+// SCRAPER_BROWSER_TOKEN if it isn't already in the URL, and read the body as
+// text once (then JSON-parse only if it looks like JSON) to avoid stream reuse.
 async function fetchHTML(url, { render = false } = {}) {
   const proxy = process.env.SCRAPER_BROWSER_URL
   if (render && proxy) {
-    // Convention: POST { url } -> { html }  (works with common browserless setups;
-    // adjust here if your renderer uses a different contract).
-    const res = await fetch(proxy, {
+    let endpoint = proxy
+    try {
+      const u = new URL(proxy)
+      if (u.pathname === '' || u.pathname === '/') { u.pathname = '/content'; endpoint = u.toString() }
+    } catch { /* not a full URL; use as given */ }
+    const token = process.env.SCRAPER_BROWSER_TOKEN
+    if (token && !/[?&]token=/.test(endpoint)) {
+      endpoint += (endpoint.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
+    }
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url, gotoOptions: { waitUntil: 'networkidle2' } }),
+      body: JSON.stringify({ url }),
     })
-    if (!res.ok) throw new Error(`Render proxy ${res.status}`)
-    const data = await res.json().catch(() => null)
-    if (data?.html) return data.html
-    return await res.text()
+    if (!res.ok) throw new Error(`Render proxy ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    const body = await res.text()
+    if (body.trim().startsWith('{')) {
+      try { const j = JSON.parse(body); return j.html || j.content || j.data || body } catch { return body }
+    }
+    return body // raw rendered HTML (Browserless /content)
   }
   const res = await fetch(url, {
     headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', accept: 'text/html' },

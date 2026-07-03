@@ -98,11 +98,28 @@ Three sources, most reliable first:
    ```
 
 3. **Headless render hook (for JS‑heavy sites).** Walmart, Target, Sam's Club and
-   similar render prices with JavaScript and block plain HTTP requests. Point
-   `SCRAPER_BROWSER_URL` at a browserless/Playwright endpoint that takes
-   `POST { url }` and returns rendered HTML, then set `"render": true` on those
-   adapters. This is the honest way to reach those sites; without it they return
-   an empty shell.
+   similar render prices with JavaScript and block plain HTTP requests. Route
+   those through a headless browser and set `"render": true` on the adapter.
+
+   The simplest option is **Browserless** (cloud or self‑hosted). ForkCast POSTs
+   `{ url }` to its `/content` endpoint and reads back the rendered HTML:
+
+   ```bash
+   # self-hosted, one container:
+   docker run -d -p 3000:3000 -e "TOKEN=your-secret" ghcr.io/browserless/chromium
+   ```
+   ```
+   SCRAPER_BROWSER_URL=http://localhost:3000        # "/content" is appended automatically
+   SCRAPER_BROWSER_TOKEN=your-secret
+   ```
+
+   For Browserless cloud, use `https://production-sfo.browserless.io/content`
+   with your account token. Any custom service that takes `POST { url }` and
+   returns raw HTML or `{ html }` works too — just point `SCRAPER_BROWSER_URL` at
+   it. In production the URL must be reachable from Netlify (not `localhost`).
+   Without this hook, JS‑heavy sites return an empty shell. Even with it, some
+   sites need residential proxies or Browserless's `/unblock` endpoint to get
+   past bot detection.
 
 **Notes for private/personal use:** scraping is bounded by a time budget per
 request (click again to price the rest of a long list), sends a normal
