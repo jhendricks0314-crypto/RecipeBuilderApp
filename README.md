@@ -86,20 +86,26 @@ Three sources, most reliable first:
    (Kroger, Fred Meyer, Ralphs, King Soopers, Harris Teeter, Fry's, Smith's, QFC,
    Dillons, …). Works out of the box, no browser needed.
 
-2. **Configurable HTML adapters.** Add server‑rendered stores via `SCRAPER_CONFIG`
-   (a JSON array) without touching code — give it a search URL (`{term}` is
-   substituted) and CSS selectors for the item / name / price. Verify the
-   selectors against the store's current markup.
+2. **Configurable store adapters.** Add stores via `SCRAPER_CONFIG` (a JSON array)
+   without touching code. Each entry has an `id`, `label`, and `searchUrl`
+   (`{term}` is substituted), plus an **`extract`** strategy:
+
+   - `"css"` — CSS selectors `{ item, name, price }` (simple, server‑rendered sites)
+   - `"jsonld"` — reads `<script type="application/ld+json">` Product data
+   - `"nextdata"` — reads a Next.js `<script id="__NEXT_DATA__">` JSON blob
+   - `"auto"` — tries `__NEXT_DATA__`, then JSON‑LD (default when no selectors)
+
+   The JSON strategies use a resilient deep‑scan (they find product objects with a
+   name + price even if the exact path shifts), which is far sturdier than CSS
+   selectors on modern storefronts. Per store you can also set `"render": true`
+   (JS‑heavy) or `"unblock": true` (bot‑protected); both need the browser hook (3).
 
    ```json
    [
-     {
-       "id": "harps",
-       "label": "Harps",
+     { "id": "harps", "label": "Harps",
        "searchUrl": "https://www.harpsfood.com/search?q={term}",
-       "render": false,
-       "selectors": { "item": ".product-cell", "name": ".cell-title", "price": ".cell-price" }
-     }
+       "extract": "css",
+       "selectors": { "item": ".product-cell", "name": ".cell-title", "price": ".cell-price" } }
    ]
    ```
 
@@ -132,6 +138,37 @@ request (click again to price the rest of a long list), sends a normal
 User‑Agent, and caches aggressively. Retailer terms and `robots.txt` still apply
 — this is provided for your own personal price‑tracking. Items with no live
 source fall back to receipt prices (or stay unpriced for you to fill in).
+
+### Store scraper setup: Aldi, Walmart, Dollar General
+
+`.env.example` ships a ready `SCRAPER_CONFIG` for these three (Walmart via
+`nextdata` + `unblock`, Aldi and Dollar General via `auto` + `render`). To use it,
+set up the Browserless hook (3) and uncomment that line. **Be realistic about
+these three** — they're the hardest targets:
+
+- **Walmart** puts prices in a `__NEXT_DATA__` blob behind Akamai + PerimeterX.
+  Plain rendering usually hits a challenge page, so the config uses `"unblock": true`
+  (Browserless `/unblock`). Even then, datacenter IPs are often blocked — you may
+  need Browserless's residential‑proxy option. Prices are ZIP/store‑specific.
+- **Aldi (US)** exposes very little scrapable per‑item pricing and gates it behind a
+  selected store; expect partial or no results.
+- **Dollar General** prices are tied to a specific store number, so a plain search
+  returns default/approximate pricing.
+
+Because retailer markup and URLs change, treat the shipped config as a starting
+point and verify two things per store:
+
+1. **The search URL.** Search on the store's own site and copy the URL from the
+   address bar; replace the query with `{term}`.
+2. **That prices actually come back.** Use Browserless's `/content` (or `/unblock`)
+   debugger, or ForkCast's own "Update live prices" button, on a common item like
+   "milk". If nothing returns, the page likely needs a store/location set first
+   (a cookie or URL parameter), or a residential proxy. The `nextdata`/`jsonld`
+   deep‑scan means you usually don't need exact JSON paths — but you can pin them
+   with `itemsPath` / `namePath` / `pricePath` if you want tighter results.
+
+The engine never crashes on a failed store: a blocked or empty source is simply
+skipped, and pricing falls back to your scanned receipts.
 
 ## Honest notes on the tricky requirements
 

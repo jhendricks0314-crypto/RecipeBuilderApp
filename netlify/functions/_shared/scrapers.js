@@ -58,34 +58,40 @@ async function cacheSet(key, value) {
 // --- fetch (optionally via a headless-render proxy) -------------------------
 // Works with two kinds of renderer:
 //   • Browserless (cloud or self-hosted): POST /content?token=... { url }
-//     returns the raw rendered HTML as the response body.
+//     returns rendered HTML. For bot-protected sites, `unblock:true` uses the
+//     /unblock endpoint (bypasses many anti-bot walls) and reads back { content }.
 //   • A custom Playwright/Puppeteer service: POST { url } returns JSON { html }.
-// We auto-target /content when only a base URL is given, attach a token from
-// SCRAPER_BROWSER_TOKEN if it isn't already in the URL, and read the body as
-// text once (then JSON-parse only if it looks like JSON) to avoid stream reuse.
-async function fetchHTML(url, { render = false } = {}) {
+// We auto-target the right endpoint from a base URL, attach a token from
+// SCRAPER_BROWSER_TOKEN, and read the body as text once (JSON-parsing only if it
+// looks like JSON) to avoid re-reading the stream.
+async function fetchHTML(url, { render = false, unblock = false } = {}) {
   const proxy = process.env.SCRAPER_BROWSER_URL
-  if (render && proxy) {
+  if ((render || unblock) && proxy) {
+    const wantPath = unblock ? '/unblock' : '/content'
     let endpoint = proxy
     try {
       const u = new URL(proxy)
-      if (u.pathname === '' || u.pathname === '/') { u.pathname = '/content'; endpoint = u.toString() }
+      if (u.pathname === '' || u.pathname === '/') { u.pathname = wantPath; endpoint = u.toString() }
+      else if (unblock && /\/content$/.test(u.pathname)) { u.pathname = u.pathname.replace(/\/content$/, '/unblock'); endpoint = u.toString() }
     } catch { /* not a full URL; use as given */ }
     const token = process.env.SCRAPER_BROWSER_TOKEN
     if (token && !/[?&]token=/.test(endpoint)) {
       endpoint += (endpoint.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token)
     }
+    const payload = unblock
+      ? { url, content: true, browserWSEndpoint: false, cookies: false, screenshot: false }
+      : { url }
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(payload),
     })
     if (!res.ok) throw new Error(`Render proxy ${res.status}: ${(await res.text()).slice(0, 200)}`)
     const body = await res.text()
     if (body.trim().startsWith('{')) {
-      try { const j = JSON.parse(body); return j.html || j.content || j.data || body } catch { return body }
+      try { const j = JSON.parse(body); return j.content || j.html || j.data || body } catch { return body }
     }
-    return body // raw rendered HTML (Browserless /content)
+    return body // raw rendered HTML
   }
   const res = await fetch(url, {
     headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', accept: 'text/html' },
@@ -161,34 +167,146 @@ const kroger = {
 }
 
 // ===========================================================================
-// Adapter 2+: configurable HTML adapters (env SCRAPER_CONFIG)
+// Adapter 2+: configurable store adapters (env SCRAPER_CONFIG)
 // ===========================================================================
-// SCRAPER_CONFIG is a JSON array, e.g.:
-// [
-//   {
-//     "id": "harps",
-//     "label": "Harps",
-//     "searchUrl": "https://www.harpsfood.com/search?q={term}",
-//     "render": false,
-//     "selectors": { "item": ".product-card", "name": ".product-title", "price": ".product-price" }
-//   }
-// ]
+// SCRAPER_CONFIG is a JSON array. Each entry needs an id, label, and searchUrl
+// ({term} is substituted). Pick an extraction strategy with "extract":
+//   • "css"      – CSS selectors: { item, name, price }         (simple sites)
+//   • "jsonld"   – reads <script type=application/ld+json> Products (Aldi, etc.)
+//   • "nextdata" – reads Next.js <script id=__NEXT_DATA__> JSON  (Walmart, etc.)
+//   • "auto"     – tries __NEXT_DATA__, then JSON-LD (default when no selectors)
+// For JS-heavy sites set "render": true (Browserless /content) or, for
+// bot-protected sites, "unblock": true (Browserless /unblock). Both require
+// SCRAPER_BROWSER_URL. See .env.example for ready-made Walmart/Aldi/DG entries.
+
+function num(v) {
+  if (v == null) return null
+  if (typeof v === 'number') return isFinite(v) && v > 0 ? v : null
+  const m = String(v).replace(/[, ]/g, '').match(/(\d+(?:\.\d{1,2})?)/)
+  const n = m ? Number(m[1]) : NaN
+  return isFinite(n) && n > 0 && n < 100000 ? n : null
+}
+
+function getPath(obj, path) {
+  if (!path) return undefined
+  return path.split('.').reduce((o, k) => {
+    if (o == null) return undefined
+    const idx = k.match(/^(\w+)\[(\d+)\]$/)
+    return idx ? o[idx[1]]?.[Number(idx[2])] : o[k]
+  }, obj)
+}
+
+function nameOf(o) {
+  const n = o && (o.name || o.title || o.productName || o.displayName)
+  return typeof n === 'string' && n.trim().length > 1 ? n.trim() : null
+}
+
+function pickPrice(o) {
+  if (!o || typeof o !== 'object') return null
+  const unwrap = (c) => (c && typeof c === 'object' ? (c.price ?? c.amount ?? c.value ?? c.min) : c)
+  const cands = [
+    o.price, o.salePrice, o.currentPrice, o.finalPrice, o.minPrice, o.listPrice, o.unitPrice,
+    o.currentPrice?.price, o.priceInfo?.currentPrice?.price, o.priceInfo?.linePrice,
+    o.price?.regular, o.price?.promo, o.pricing?.current, o.offers?.price, o.offers?.lowPrice,
+  ]
+  for (const c of cands) { const n = num(unwrap(c)); if (n) return n }
+  return null
+}
+
+// Recursively find product-like {name, price} objects anywhere in a JSON blob.
+function deepFindProducts(node, out, depth = 0) {
+  if (!node || depth > 9 || out.length > 80) return
+  if (Array.isArray(node)) { for (const n of node) deepFindProducts(n, out, depth + 1); return }
+  if (typeof node !== 'object') return
+  const name = nameOf(node)
+  const price = pickPrice(node)
+  if (name && price) out.push({ name, price })
+  for (const k in node) if (node[k] && typeof node[k] === 'object') deepFindProducts(node[k], out, depth + 1)
+}
+
+function readScriptJSON($, selector) {
+  const el = $(selector).first()
+  const raw = el.length ? (el.contents().text() || el.text()) : ''
+  if (!raw) return null
+  try { return JSON.parse(raw) } catch { return null }
+}
+
+function extractJsonLd($) {
+  const out = []
+  $('script[type="application/ld+json"]').each((_, el) => {
+    let data
+    try { data = JSON.parse($(el).contents().text() || $(el).text()) } catch { return }
+    const stack = [].concat(data)
+    let guard = 0
+    while (stack.length && guard++ < 500) {
+      const node = stack.pop()
+      if (!node || typeof node !== 'object') continue
+      if (node['@graph']) stack.push(...[].concat(node['@graph']))
+      if (node.itemListElement) stack.push(...[].concat(node.itemListElement).map((x) => x.item || x))
+      if ([].concat(node['@type'] || []).includes('Product')) {
+        const name = nameOf(node)
+        let price = null
+        for (const of of [].concat(node.offers || [])) { const n = num(of.price ?? of.lowPrice); if (n) { price = n; break } }
+        if (name && price) out.push({ name, price })
+      }
+    }
+  })
+  return out
+}
+
+// Extract [{name, price}] from a page using the configured strategy.
+function extractProducts(html, cfg) {
+  const $ = cheerio.load(html)
+  const strat = cfg.extract || (cfg.selectors?.item ? 'css' : 'auto')
+
+  if (strat === 'css' && cfg.selectors?.item) {
+    const out = []
+    $(cfg.selectors.item).each((_, el) => {
+      const name = $(el).find(cfg.selectors.name).first().text().trim()
+      const price = num($(el).find(cfg.selectors.price).first().text())
+      if (name && price) out.push({ name, price })
+    })
+    return out.slice(0, 25)
+  }
+
+  if (strat === 'jsonld') return extractJsonLd($).slice(0, 25)
+
+  if (strat === 'nextdata') {
+    const data = readScriptJSON($, '#__NEXT_DATA__')
+    if (!data) return []
+    const out = []
+    const items = cfg.itemsPath ? getPath(data, cfg.itemsPath) : null
+    if (Array.isArray(items)) {
+      for (const it of items) {
+        const name = cfg.namePath ? getPath(it, cfg.namePath) : nameOf(it)
+        const price = cfg.pricePath ? num(getPath(it, cfg.pricePath)) : pickPrice(it)
+        if (name && price) out.push({ name: String(name).trim(), price })
+      }
+      if (out.length) return out.slice(0, 25)
+    }
+    deepFindProducts(data, out) // fallback: scan the whole blob
+    return out.slice(0, 25)
+  }
+
+  // 'auto': Next.js data → JSON-LD
+  const nd = readScriptJSON($, '#__NEXT_DATA__')
+  if (nd) { const out = []; deepFindProducts(nd, out); if (out.length) return out.slice(0, 25) }
+  const ld = extractJsonLd($)
+  return ld.slice(0, 25)
+}
+
 function htmlAdapter(cfg) {
+  const label = cfg.label || cfg.id
   return {
     id: cfg.id,
-    label: cfg.label || cfg.id,
-    enabled: () => true,
+    label,
+    // Render/unblock adapters need a browser endpoint; without it, stay disabled
+    // rather than firing doomed plain requests at JS-heavy sites.
+    enabled: () => (cfg.render || cfg.unblock ? !!process.env.SCRAPER_BROWSER_URL : true),
     async search(term) {
       const url = cfg.searchUrl.replace('{term}', encodeURIComponent(term))
-      const html = await fetchHTML(url, { render: !!cfg.render })
-      const $ = cheerio.load(html)
-      const out = []
-      $(cfg.selectors.item).each((_, el) => {
-        const name = $(el).find(cfg.selectors.name).first().text().trim()
-        const price = parsePrice($(el).find(cfg.selectors.price).first().text())
-        if (name && price) out.push({ store: cfg.label || cfg.id, price, name })
-      })
-      return out.slice(0, 8)
+      const html = await fetchHTML(url, { render: !!cfg.render, unblock: !!cfg.unblock })
+      return extractProducts(html, cfg).map((p) => ({ store: label, price: p.price, name: p.name }))
     },
   }
 }
@@ -198,7 +316,9 @@ function loadConfiguredAdapters() {
     const raw = process.env.SCRAPER_CONFIG
     if (!raw) return []
     const cfgs = JSON.parse(raw)
-    return (Array.isArray(cfgs) ? cfgs : []).filter((c) => c.searchUrl && c.selectors?.item).map(htmlAdapter)
+    return (Array.isArray(cfgs) ? cfgs : [])
+      .filter((c) => c && c.id && c.searchUrl)
+      .map(htmlAdapter)
   } catch {
     return []
   }
@@ -239,18 +359,29 @@ export async function getScrapedPrices(term, { zip, force = false } = {}) {
     adapters.map((a) => a.search(term, { zip }))
   )
 
-  // Keep the cheapest hit per store label.
+  // Per store, keep the price of the product that best matches the search term
+  // (not just the cheapest item on the page — that might be an unrelated add-on).
+  const termTokens = new Set(normTerm(term).split(' ').filter((w) => w.length > 2))
+  const sim = (name) => {
+    const B = new Set(normTerm(name).split(' ').filter((w) => w.length > 2))
+    if (!termTokens.size || !B.size) return 0
+    let inter = 0
+    for (const t of termTokens) if (B.has(t)) inter++
+    return inter / termTokens.size
+  }
+
   const byStore = {}
   results.forEach((r) => {
     if (r.status !== 'fulfilled') return
-    for (const hit of r.value || []) {
-      const cur = byStore[hit.store]
-      if (!cur || hit.price < cur.price) {
-        byStore[hit.store] = { store: hit.store, price: hit.price, matched: hit.name, source: 'live', date: new Date().toISOString().slice(0, 10) }
-      }
-    }
+    for (const hit of r.value || []) (byStore[hit.store] ||= []).push({ ...hit, sim: sim(hit.name || '') })
   })
-  const prices = Object.values(byStore).sort((a, b) => a.price - b.price)
+  const prices = Object.entries(byStore).map(([store, hits]) => {
+    const relevant = hits.filter((h) => h.sim >= 0.34)
+    const pool = relevant.length ? relevant : hits
+    pool.sort((a, b) => (b.sim - a.sim) || (a.price - b.price)) // most relevant, then cheapest
+    const best = pool[0]
+    return { store, price: best.price, matched: best.name, source: 'live', date: new Date().toISOString().slice(0, 10) }
+  }).sort((a, b) => a.price - b.price)
 
   await cacheSet(key, prices)
   // Also keep a term-level aggregate for fast merges during list generation.
