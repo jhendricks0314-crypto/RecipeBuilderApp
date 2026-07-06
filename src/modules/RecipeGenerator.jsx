@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, RecipeIcon } from '../components/ui.jsx'
 import { money, stamp, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
 
@@ -8,18 +9,22 @@ const blankMeal = () => ({ cuisine: 'Random', tool: 'Oven', time: 'moderate', pe
 
 export default function RecipeGenerator() {
   const navigate = useNavigate()
-  const [count, setCount] = useState(2)
-  const [budget, setBudget] = useState(15)
-  const [mode, setMode] = useState('know') // 'know' = type what to cook, 'help' = configure
-  const [whatToCook, setWhatToCook] = useState('')
-  const [meals, setMeals] = useState([blankMeal(), blankMeal()])
+  const routerState = useLocation().state
+  const [pantry, setPantry] = useState(routerState?.pantryItems?.length ? routerState.pantryItems : null)
+  const [onlyPantry, setOnlyPantry] = useState(routerState?.onlyPantry ?? true)
+  // Setup + generated results are cached so a refresh or app close won't lose them.
+  const [count, setCount] = usePersistentState('gen.count', 2)
+  const [budget, setBudget] = usePersistentState('gen.budget', 15)
+  const [mode, setMode] = usePersistentState('gen.mode', 'know') // 'know' = type what to cook, 'help' = configure
+  const [whatToCook, setWhatToCook] = usePersistentState('gen.whatToCook', '')
+  const [meals, setMeals] = usePersistentState('gen.meals', () => [blankMeal(), blankMeal()])
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [results, setResults] = useState([])
+  const [results, setResults] = usePersistentState('gen.results', [])
   const [regenIdx, setRegenIdx] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [savedIds, setSavedIds] = useState({})
+  const [savedIds, setSavedIds] = usePersistentState('gen.savedIds', {})
 
   const setMealCount = (n) => {
     setCount(n)
@@ -39,11 +44,12 @@ export default function RecipeGenerator() {
     try {
       const body = { count, budget: Number(budget) }
       if (mode === 'know') {
-        if (!whatToCook.trim()) { setError('Tell us what you want to cook, or switch to "Help me decide".'); setBusy(false); return }
-        body.whatToCook = whatToCook.trim()
+        if (!whatToCook.trim() && !pantry) { setError('Tell us what you want to cook, or switch to "Help me decide".'); setBusy(false); return }
+        if (whatToCook.trim()) body.whatToCook = whatToCook.trim()
       } else {
         body.meals = meals.slice(0, count)
       }
+      if (pantry) { body.pantryItems = pantry; body.onlyPantry = onlyPantry }
       const { recipes } = await api.generateRecipes(body)
       setResults(recipes)
     } catch (e) {
@@ -71,6 +77,7 @@ export default function RecipeGenerator() {
         count: 1,
         budget: Number(budget),
         meals: [{ cuisine: r.cuisine, tool: r.tool, people: r.servings, audience: r.audience, command }],
+        ...(pantry ? { pantryItems: pantry, onlyPantry } : {}),
       })
       const fresh = recipes[0]
       setResults((prev) => prev.map((x, i) => (i === idx ? { ...fresh, _command: '' } : x)))
@@ -112,6 +119,22 @@ export default function RecipeGenerator() {
       <p className="page-sub">Set a budget, tell ForkCast what you're in the mood for, and it'll design recipes to match — names, steps, and cost included.</p>
 
       {error && <Banner kind="error">{error}</Banner>}
+
+      {pantry && (
+        <div className="card" style={{ borderColor: 'var(--saffron)', background: 'rgba(224,168,46,0.08)' }}>
+          <div className="row-between">
+            <strong style={{ fontSize: 15 }}>🥫 Cooking from your pantry</strong>
+            <button className="linklike" onClick={() => setPantry(null)}>clear</button>
+          </div>
+          <p className="muted" style={{ fontSize: 13, margin: '4px 0 10px' }}>
+            Using {pantry.length} item{pantry.length !== 1 ? 's' : ''} you have on hand. Recipes will flag what you already have, and your shopping list will only include what you still need.
+          </p>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            <span className={`checkbox ${onlyPantry ? 'on' : ''}`} onClick={(e) => { e.preventDefault(); setOnlyPantry((v) => !v) }} style={{ width: 22, height: 22 }}>{onlyPantry ? '✓' : ''}</span>
+            Only use what I have (plus basic staples)
+          </label>
+        </div>
+      )}
 
       <div className="card">
         <div className="grid-2">
@@ -230,6 +253,7 @@ export default function RecipeGenerator() {
                       {r.ingredients.map((ing, k) => (
                         <li key={k} style={{ marginBottom: 3 }}>
                           {ing.quantity} {ing.item} {ing.estCost ? <span className="price muted">· {money(ing.estCost)}</span> : null}
+                          {ing.have && <span className="tag" style={{ background: 'rgba(59,122,87,0.15)', color: 'var(--basil)', marginLeft: 6, fontSize: 10.5 }}>have</span>}
                         </li>
                       ))}
                     </ul>
@@ -264,6 +288,9 @@ export default function RecipeGenerator() {
             </button>
             <button className="btn btn-primary" onClick={saveAndBuildList} disabled={saving}>
               Save & build shopping list
+            </button>
+            <button className="btn btn-ghost" onClick={() => { setResults([]); setSavedIds({}); setError('') }} disabled={saving}>
+              Start over
             </button>
           </div>
         </>

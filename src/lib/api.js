@@ -56,5 +56,11 @@ export const api = {
   parseReceipt: (body) => request('receipts/parse', { method: 'POST', body }),
   commitReceipt: (body) => request('receipts', { method: 'POST', body }),
 
+  getPantry: () => request('pantry'),
+  savePantry: (items) => request('pantry', { method: 'PUT', body: { items } }),
+  addPantry: (items) => request('pantry', { method: 'POST', body: { items } }),
+  lookupBarcode: (upc) => request('barcode-lookup', { params: { upc } }),
+  identifyPantry: (body) => request('identify-pantry', { method: 'POST', body }),
+
   logs: (params) => request('logs', { params }),
 }

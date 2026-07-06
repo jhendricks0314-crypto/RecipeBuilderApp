@@ -1,7 +1,7 @@
 // POST /api/generate-recipes
-// Body: { count, budget, whatToCook?, meals?: [{cuisine, tool, time, people, audience, command}] }
+// Body: { count, budget, whatToCook?, meals?: [...], pantryItems?: [names], onlyPantry? }
 // Returns fully-formed recipe objects (not yet saved) with names, summaries,
-// timestamps, ingredients, efficient step-by-step instructions, and cost.
+// timestamps, ingredients (each flagged have:true/false), efficient steps, cost.
 import { getUser, ok, bad, unauth } from './_shared/auth.js'
 import { claudeJSON, hasClaude } from './_shared/claude.js'
 import { id } from './_shared/blobs.js'
@@ -27,9 +27,10 @@ Each recipe object must have exactly these fields:
   "estimatedTimeMinutes": number,
   "estimatedCost": number,        // total USD to make the dish, realistic
   "costBreakdown": string,        // one line explaining the estimate
-  "ingredients": [ { "item": string, "quantity": string, "estCost": number } ],
+  "ingredients": [ { "item": string, "quantity": string, "estCost": number, "have": boolean } ],
   "steps": [ { "text": string, "note": string } ]  // note = optional efficiency tip, else ""
 }
+For each ingredient, set "have" to true only when it is something the cook already has on hand (an item from the on-hand list, if one is provided, or an obvious basic staple like salt/pepper/water); otherwise false.
 Organize steps for real-kitchen efficiency: when a step involves waiting (baking, simmering, resting), the "note" on that step should tell the cook what to prep or start in parallel while they wait.
 Keep total ingredient costs at or under the stated budget when at all possible; if impossible, get as close as you can and say so in costBreakdown.`
 
@@ -69,6 +70,19 @@ Budget per recipe: about $${budget.toFixed(2)}. Serve 2–4 unless the request i
       userPrompt = `Generate ${count} recipe(s), one per spec below:\n${specs}`
     }
 
+    // Cooking from the pantry: steer the recipes toward what's on hand.
+    const pantry = Array.isArray(body.pantryItems)
+      ? body.pantryItems.map((s) => String(s).trim()).filter(Boolean)
+      : []
+    if (pantry.length) {
+      userPrompt += `\n\nThe cook already has these items on hand: ${pantry.join(', ')}.
+Build recipes centered on these items. ${
+        body.onlyPantry
+          ? 'Use ONLY these items plus basic staples (salt, pepper, cooking oil, water, common dried spices) — avoid requiring other purchases; if something small is truly unavoidable, keep it minimal and mark it have:false.'
+          : 'Prefer these items; you may add a few common extra ingredients where needed.'
+      }`
+    }
+
     const recipes = await claudeJSON({
       system: SYSTEM,
       maxTokens: 6000,
@@ -90,7 +104,7 @@ Budget per recipe: about $${budget.toFixed(2)}. Serve 2–4 unless the request i
       estimatedCost: Number(r.estimatedCost) || 0,
       costBreakdown: r.costBreakdown || '',
       ingredients: Array.isArray(r.ingredients)
-        ? r.ingredients.map((i) => ({ item: i.item, quantity: i.quantity || '', estCost: Number(i.estCost) || 0 }))
+        ? r.ingredients.map((i) => ({ item: i.item, quantity: i.quantity || '', estCost: Number(i.estCost) || 0, have: !!i.have }))
         : [],
       steps: Array.isArray(r.steps)
         ? r.steps.map((s, idx) => ({ n: idx + 1, text: s.text || String(s), note: s.note || '', comments: [] }))

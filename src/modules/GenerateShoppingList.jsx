@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, Loading, Empty, RecipeIcon } from '../components/ui.jsx'
 import { money } from '../lib/util.js'
 
@@ -13,7 +14,7 @@ export default function GenerateShoppingList() {
   const [stores, setStores] = useState([])
   const [chosenStores, setChosenStores] = useState({})
   const [locBusy, setLocBusy] = useState(false)
-  const [locText, setLocText] = useState('')
+  const [locText, setLocText] = usePersistentState('shop.locText', '') // remember city/ZIP
   const [storeNote, setStoreNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

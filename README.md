@@ -15,6 +15,7 @@ Generate recipes with Claude, build a merged shopping list for the meals you pic
 | **Shopping List** | Check items off, edit amounts, switch stores per item when it's cheaper elsewhere, delete lists. |
 | **Recipes** | Your saved cookbook. Filter by name/cuisine/tool/cost, edit/add/delete steps, comment per step and per recipe, rate 1–5★, add up to 3 photos, select several → build a list, or share by phone. |
 | **Receipt Scanner** | Capture a receipt with the camera (or upload). Claude vision extracts **food** items only (garbage bags etc. are dropped), you review/edit/add/delete rows, then commit to a shared price database that only the shopping‑list tool reads. |
+| **Pantry** | A running, category‑grouped list of what you have on hand (shared across the profile). Add items three ways: by hand, **scan a barcode** (looked up via the free Open Food Facts database), or **snap a photo** and let Claude vision identify what's there. Tap **Cook from my pantry** to generate recipes built around what you have — owned ingredients get a "have" tag and are skipped when building the shopping list. |
 | **Profile** | Gmail SSO + cell number. The creator is the owner and can link other Gmail accounts (each Gmail can only belong to one profile). Owners can delete the profile. |
 | **Logs** (`/logs`) | Hidden admin page. Only the admin Gmail can open it. Shows errors with the action the user was performing, error codes, details, and stack traces. |
 
@@ -24,6 +25,11 @@ Generate recipes with Claude, build a merged shopping list for the meals you pic
 - **Netlify Functions** for the API and **Netlify Blobs** for storage, so all data lives within Netlify.
 - **Google OAuth** (authorization‑code flow) with a signed JWT session cookie.
 - **Claude** (Anthropic Messages API) for recipe generation, cost estimates, command validation, and receipt OCR.
+- **Draft caching** (`src/lib/persist.jsx`): in‑progress input and unsaved work — the recipe
+  generator's setup + generated recipes, a half‑reviewed receipt, onboarding fields, the pantry
+  add form, and remembered store/ZIP — are saved to `localStorage` (debounced, namespaced per
+  account), so closing, reloading, or crashing the app doesn't lose anything. Saved recipes,
+  lists, pantry items, and receipts also persist server‑side in Blobs.
 
 ---
 

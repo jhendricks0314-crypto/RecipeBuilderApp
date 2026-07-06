@@ -1,10 +1,11 @@
 import { NavLink, Outlet, Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
-import { IconGenerate, IconCart, IconList, IconBook, IconScan, IconFork } from './icons.jsx'
+import { IconGenerate, IconCart, IconList, IconBook, IconScan, IconPantry, IconFork } from './icons.jsx'
 
 const NAV = [
   { to: '/generate', label: 'Generate', Icon: IconGenerate },
-  { to: '/shopping', label: 'Build List', Icon: IconCart },
+  { to: '/pantry', label: 'Pantry', Icon: IconPantry },
+  { to: '/shopping', label: 'Build', Icon: IconCart },
   { to: '/list', label: 'Shopping', Icon: IconList },
   { to: '/recipes', label: 'Recipes', Icon: IconBook },
   { to: '/scan', label: 'Scan', Icon: IconScan },

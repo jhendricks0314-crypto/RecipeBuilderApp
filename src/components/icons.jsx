@@ -16,6 +16,15 @@ export const IconBook = () => (
 export const IconScan = () => (
   <svg viewBox="0 0 24 24" {...S}><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M8 12h8M12 9v6"/></svg>
 )
+export const IconPantry = () => (
+  <svg viewBox="0 0 24 24" {...S}><path d="M8 2h8a1 1 0 0 1 1 1v1.5a2.5 2.5 0 0 1-1 2V21a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V7.5a2.5 2.5 0 0 1-1-2V3a1 1 0 0 1 1-1z"/><path d="M11 11h2"/></svg>
+)
+export const IconBarcode = () => (
+  <svg viewBox="0 0 24 24" {...S}><path d="M3 5v14M7 5v14M11 5v14M14 5v10M14 17v2M17 5v14M21 5v14"/></svg>
+)
+export const IconCamera = () => (
+  <svg viewBox="0 0 24 24" {...S}><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L19 6h0a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.2"/></svg>
+)
 export const IconFork = () => (
   <svg viewBox="0 0 24 24" {...S}><path d="M7 3v6a2.5 2.5 0 0 0 5 0V3M9.5 3v18M17 3c-1.5 0-2.5 2-2.5 5s1 4 2.5 4 2.5-1 2.5-4-1-5-2.5-5zM17 12v9"/></svg>
 )

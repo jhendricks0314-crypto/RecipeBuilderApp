@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { api } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
+import { usePersistentState, clearDraftsFor } from '../lib/persist.jsx'
 import { Banner, Spinner } from '../components/ui.jsx'
 import { IconFork } from '../components/icons.jsx'
 
 export default function Onboarding() {
   const { user, refresh, logout } = useAuth()
-  const [displayName, setDisplayName] = useState(user?.name || '')
-  const [phone, setPhone] = useState('')
+  const [displayName, setDisplayName] = usePersistentState('onboarding.displayName', user?.name || '')
+  const [phone, setPhone] = usePersistentState('onboarding.phone', '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -16,6 +17,7 @@ export default function Onboarding() {
     setBusy(true)
     try {
       await api.createProfile({ displayName, phone })
+      clearDraftsFor(user?.email) // onboarding done — drop its cached fields
       await refresh()
     } catch (e) {
       setError(e.message)

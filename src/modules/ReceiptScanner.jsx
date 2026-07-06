@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
+import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, Toast } from '../components/ui.jsx'
 import { money } from '../lib/util.js'
 
@@ -10,12 +11,13 @@ export default function ReceiptScanner() {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const [camOn, setCamOn] = useState(false)
-  const [store, setStore] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  // Store name + reviewed rows are cached so a half-finished receipt survives a close.
+  const [store, setStore] = usePersistentState('receipt.store', '')
+  const [date, setDate] = usePersistentState('receipt.date', () => new Date().toISOString().slice(0, 10))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [items, setItems] = useState(null) // parsed, editable rows
-  const [dropped, setDropped] = useState([])
+  const [items, setItems] = usePersistentState('receipt.items', null) // parsed, editable rows
+  const [dropped, setDropped] = usePersistentState('receipt.dropped', [])
   const [toast, setToast] = useState('')
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 1800) }
@@ -89,7 +91,7 @@ export default function ReceiptScanner() {
         items: clean.map((i) => ({ ...i, unitPrice: Number(i.unitPrice) || Number(i.price) || 0 })),
       })
       flash(`Saved ${saved} item${saved !== 1 ? 's' : ''} to the price database`)
-      setItems(null); setDropped([]); setStore('')
+      setItems(null); setDropped([]); setStore(''); setDate(new Date().toISOString().slice(0, 10))
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 

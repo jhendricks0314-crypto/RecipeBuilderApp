@@ -96,3 +96,35 @@ export const TIMES = [
   { key: 'none', label: 'No limit' },
 ]
 export const AUDIENCES = ['Adults', 'Kids', 'Adults + Kids']
+
+// Pantry categories, in the order they should appear in the grouped list.
+export const PANTRY_CATEGORIES = [
+  'Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Bakery', 'Pantry & Dry Goods',
+  'Canned & Jarred', 'Condiments & Sauces', 'Spices & Baking', 'Frozen',
+  'Snacks', 'Beverages', 'Other',
+]
+
+const CATEGORY_EMOJI = {
+  'Produce': '🥬', 'Meat & Seafood': '🥩', 'Dairy & Eggs': '🥚', 'Bakery': '🍞',
+  'Pantry & Dry Goods': '🌾', 'Canned & Jarred': '🥫', 'Condiments & Sauces': '🧂',
+  'Spices & Baking': '🌶️', 'Frozen': '🧊', 'Snacks': '🍿', 'Beverages': '🥤', 'Other': '📦',
+}
+export const categoryEmoji = (c) => CATEGORY_EMOJI[c] || '📦'
+
+// Map any free-form category text to one of the canonical buckets (mirrors the
+// server so the UI can categorize instantly for manual entries).
+export function normalizeCategory(s) {
+  const t = (s || '').toLowerCase()
+  if (/(produce|fruit|vegetable|veggie|greens|herb\b)/.test(t)) return 'Produce'
+  if (/(meat|seafood|fish|poultry|chicken|beef|pork|deli)/.test(t)) return 'Meat & Seafood'
+  if (/(dairy|milk|cheese|yogurt|egg|butter|cream)/.test(t)) return 'Dairy & Eggs'
+  if (/(bakery|bread|bagel|tortilla|bun|roll|pastr)/.test(t)) return 'Bakery'
+  if (/(frozen)/.test(t)) return 'Frozen'
+  if (/(\bcan\b|jar|soup|beans|broth)/.test(t)) return 'Canned & Jarred'
+  if (/(condiment|sauce|ketchup|mustard|mayo|dressing|\boil\b|vinegar|syrup|honey)/.test(t)) return 'Condiments & Sauces'
+  if (/(spice|season|baking|flour|sugar|yeast|extract|\bsalt\b|pepper)/.test(t)) return 'Spices & Baking'
+  if (/(snack|chip|cracker|cookie|candy|nuts|\bbar\b|popcorn)/.test(t)) return 'Snacks'
+  if (/(beverage|drink|juice|soda|coffee|tea|water|wine|beer)/.test(t)) return 'Beverages'
+  if (/(pasta|spaghetti|macaroni|penne|ramen|noodle|rice|grain|cereal|dry goods|pantry|oats|lentil|quinoa|couscous|barley)/.test(t)) return 'Pantry & Dry Goods'
+  return PANTRY_CATEGORIES.includes(s) ? s : 'Other'
+}

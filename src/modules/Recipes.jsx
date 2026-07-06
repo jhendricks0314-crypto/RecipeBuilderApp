@@ -285,7 +285,7 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
       <span className="label">Ingredients</span>
       <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
         {recipe.ingredients?.map((ing, k) => (
-          <li key={k} style={{ marginBottom: 3 }}>{ing.quantity} {ing.item} {ing.estCost ? <span className="price muted">· {money(ing.estCost)}</span> : null}</li>
+          <li key={k} style={{ marginBottom: 3 }}>{ing.quantity} {ing.item} {ing.estCost ? <span className="price muted">· {money(ing.estCost)}</span> : null}{ing.have ? <span className="tag" style={{ background: 'rgba(59,122,87,0.15)', color: 'var(--basil)', marginLeft: 6, fontSize: 10.5 }}>have</span> : null}</li>
         ))}
       </ul>
 

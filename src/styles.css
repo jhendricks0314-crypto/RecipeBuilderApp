@@ -82,10 +82,10 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 }
 .bottomnav a {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  color: #9fb0a2; text-decoration: none; font-size: 10.5px; font-weight: 600;
-  padding: 6px 4px; flex: 1; letter-spacing: 0.01em;
+  color: #9fb0a2; text-decoration: none; font-size: 9.5px; font-weight: 600;
+  padding: 6px 2px; flex: 1; letter-spacing: 0.01em; min-width: 0;
 }
-.bottomnav a svg { width: 22px; height: 22px; }
+.bottomnav a svg { width: 21px; height: 21px; }
 .bottomnav a.active { color: var(--saffron); }
 
 /* ---- Cards ---- */

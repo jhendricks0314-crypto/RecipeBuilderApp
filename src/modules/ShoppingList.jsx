@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Loading, Empty, Toast, Spinner } from '../components/ui.jsx'
 import { money, fromNow } from '../lib/util.js'
 
@@ -10,7 +11,7 @@ export default function ShoppingList() {
   const [active, setActive] = useState(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
-  const [zip, setZip] = useState('')
+  const [zip, setZip] = usePersistentState('shop.zip', '') // remember pricing ZIP
   const [pricing, setPricing] = useState(false)
   const [remaining, setRemaining] = useState(0)
 

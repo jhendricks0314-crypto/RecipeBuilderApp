@@ -92,6 +92,7 @@ export default async (req) => {
         if (!r || r.profileId !== user.profileId) continue
         recipeNames.push(r.name)
         for (const ing of r.ingredients || []) {
+          if (ing.have) continue // already in the pantry — no need to buy
           const key = norm(ing.item)
           if (!key) continue
           if (!agg.has(key)) agg.set(key, { name: ing.item, quantities: [], fromRecipes: [] })

@@ -9,6 +9,7 @@ export const stores = {
   recipes: () => getStore('recipes'),          // recipeId -> Recipe (owned)
   shoppingLists: () => getStore('shopping-lists'),
   receiptItems: () => getStore('receipt-items'), // shared price DB (food only)
+  pantry: () => getStore('pantry'),            // profileId -> { items: [...] }
   priceCache: () => getStore('price-cache'),   // scraped/live prices + tokens (TTL)
   logs: () => getStore('logs'),                // logId -> LogEntry
 }
