@@ -154,6 +154,19 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 /* perforation divider — the receipt signature */
 .perf { height: 1px; border: none; border-top: 2px dotted var(--line); margin: 16px 0; }
 
+/* readable recipe steps (default, non-editing view) */
+.recipe-steps { margin: 12px 0 0; padding: 0; list-style: none; counter-reset: step; }
+.recipe-steps > li { counter-increment: step; display: grid; grid-template-columns: 28px 1fr; gap: 12px; margin-bottom: 16px; }
+.recipe-steps > li::before {
+  content: counter(step);
+  font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--saffron-deep);
+  background: rgba(224, 168, 46, 0.16); border-radius: 8px;
+  height: 26px; display: grid; place-items: center;
+}
+.recipe-steps .step-body { min-width: 0; padding-top: 2px; }
+.recipe-steps .step-text { line-height: 1.58; }
+.recipe-steps .step-note { font-size: 12.5px; margin-top: 4px; display: block; }
+
 /* stars */
 .stars { display: inline-flex; gap: 2px; }
 .stars button { background: none; border: none; cursor: pointer; padding: 0; color: var(--line); font-size: 20px; line-height: 1; }

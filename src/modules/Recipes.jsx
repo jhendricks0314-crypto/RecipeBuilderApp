@@ -204,6 +204,8 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
   const [newStep, setNewStep] = useState('')
   const [recipeComment, setRecipeComment] = useState('')
   const [stepComment, setStepComment] = useState({})
+  const [editingSteps, setEditingSteps] = useState(false)
+  const [commentingStep, setCommentingStep] = useState(null)
   const fileRef = useState(null)
 
   const editStep = (n, text) => onChange({ steps: recipe.steps.map((s) => (s.n === n ? { ...s, text } : s)) })
@@ -289,34 +291,59 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
         ))}
       </ul>
 
-      {/* Steps with inline editing + comments */}
+      {/* Steps — clean and readable by default; editable only on request */}
       <hr className="perf" />
-      <span className="label">Steps</span>
-      <div className="stack" style={{ marginTop: 6 }}>
-        {recipe.steps?.map((s) => (
-          <div key={s.n} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-              <span className="mono" style={{ color: 'var(--saffron-deep)', fontWeight: 600, paddingTop: 8 }}>{s.n}</span>
-              <textarea className="textarea" style={{ minHeight: 44 }} value={s.text} onChange={(e) => editStep(s.n, e.target.value)} />
-              <button className="linklike tomato" style={{ fontSize: 12, paddingTop: 8 }} onClick={() => deleteStep(s.n)}>delete</button>
-            </div>
-            {s.note && <div className="muted" style={{ fontSize: 12.5, margin: '2px 0 0 24px' }}>⏱ While you wait: {s.note}</div>}
-            {(s.comments || []).map((c, ci) => (
-              <div key={ci} style={{ fontSize: 12.5, margin: '4px 0 0 24px', color: 'var(--ink-soft)' }}>💬 {c.text}</div>
+      <div className="row-between">
+        <span className="label" style={{ margin: 0 }}>Steps</span>
+        <button className="linklike" onClick={() => setEditingSteps((v) => !v)}>
+          {editingSteps ? 'Done editing' : 'Edit steps'}
+        </button>
+      </div>
+
+      {!editingSteps ? (
+        <ol className="recipe-steps">
+          {recipe.steps?.map((s) => (
+            <li key={s.n}>
+              <div className="step-body">
+                <div className="step-text">{s.text}</div>
+                {s.note && <div className="muted step-note">⏱ While you wait: {s.note}</div>}
+                {(s.comments || []).map((c, ci) => (
+                  <div key={ci} className="step-note" style={{ color: 'var(--ink-soft)' }}>💬 {c.text}</div>
+                ))}
+                {commentingStep === s.n ? (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    <input className="input" style={{ padding: '5px 10px', fontSize: 12.5 }} placeholder="Add a note to this step" autoFocus
+                      value={stepComment[s.n] || ''} onChange={(e) => setStepComment((c) => ({ ...c, [s.n]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { addStepComment(s.n); setCommentingStep(null) } }} />
+                    <button className="btn btn-ghost btn-sm" onClick={() => { addStepComment(s.n); setCommentingStep(null) }}>Add</button>
+                  </div>
+                ) : (
+                  <button className="linklike step-note" style={{ fontSize: 12 }} onClick={() => setCommentingStep(s.n)}>+ note</button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <>
+          <div className="stack" style={{ marginTop: 6 }}>
+            {recipe.steps?.map((s) => (
+              <div key={s.n} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span className="mono" style={{ color: 'var(--saffron-deep)', fontWeight: 600, paddingTop: 8 }}>{s.n}</span>
+                  <textarea className="textarea" style={{ minHeight: 44 }} value={s.text} onChange={(e) => editStep(s.n, e.target.value)} />
+                  <button className="linklike tomato" style={{ fontSize: 12, paddingTop: 8 }} onClick={() => deleteStep(s.n)}>delete</button>
+                </div>
+                {s.note && <div className="muted" style={{ fontSize: 12.5, margin: '2px 0 0 24px' }}>⏱ While you wait: {s.note}</div>}
+              </div>
             ))}
-            <div style={{ display: 'flex', gap: 6, margin: '6px 0 0 24px' }}>
-              <input className="input" style={{ padding: '5px 10px', fontSize: 12.5 }} placeholder="Add a note to this step"
-                value={stepComment[s.n] || ''} onChange={(e) => setStepComment((c) => ({ ...c, [s.n]: e.target.value }))}
-                onKeyDown={(e) => e.key === 'Enter' && addStepComment(s.n)} />
-              <button className="btn btn-ghost btn-sm" onClick={() => addStepComment(s.n)}>Add</button>
-            </div>
           </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-        <input className="input" placeholder="Add a step" value={newStep} onChange={(e) => setNewStep(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addStep()} />
-        <button className="btn btn-ghost" onClick={addStep}>Add step</button>
-      </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            <input className="input" placeholder="Add a step" value={newStep} onChange={(e) => setNewStep(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addStep()} />
+            <button className="btn btn-ghost" onClick={addStep}>Add step</button>
+          </div>
+        </>
+      )}
 
       {/* Recipe comments */}
       <hr className="perf" />
