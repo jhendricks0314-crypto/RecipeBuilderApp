@@ -286,6 +286,7 @@ function PhotoIdentify({ onAdd, onClose }) {
   const foundRef = useRef(new Map())   // normalized name -> { name, category, quantity, sightings, on }
 
   const [err, setErr] = useState('')
+  const [camReady, setCamReady] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [frames, setFrames] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -301,7 +302,7 @@ function PhotoIdentify({ onAdd, onClose }) {
         streamRef.current = stream
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}) }
       })
-      .catch((e) => setErr(cameraMessage(e)))
+      .catch((e) => { if (!cancelled) setErr(cameraMessage(e)) })
     return () => {
       cancelled = true
       scanningRef.current = false
@@ -420,7 +421,16 @@ function PhotoIdentify({ onAdd, onClose }) {
         <>
           {err && <Banner kind="warn">{err}</Banner>}
           <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
-            <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+            <video
+              ref={videoRef}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              muted
+              playsInline
+              // videoWidth is only usable once metadata has loaded — this is the
+              // real "ready to grab a frame" signal, and it lives in state so the
+              // Start button actually re-renders when the camera comes up.
+              onLoadedMetadata={() => setCamReady(true)}
+            />
             {scanning && (
               <div style={{
                 position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 8,
@@ -458,15 +468,15 @@ function PhotoIdentify({ onAdd, onClose }) {
 
           <div className="btn-row">
             {!scanning ? (
-              <button className="btn btn-primary" onClick={startScan} disabled={busy || !!streamRef.current === false}>
-                ● Start scan
+              <button className="btn btn-primary" onClick={startScan} disabled={busy || !camReady}>
+                {camReady ? '● Start scan' : err ? 'Camera unavailable' : 'Starting camera…'}
               </button>
             ) : (
               <button className="btn btn-danger" onClick={stopScan}>■ Stop scan</button>
             )}
             {!scanning && (
               <>
-                <button className="btn btn-ghost" onClick={captureOnce} disabled={busy}>
+                <button className="btn btn-ghost" onClick={captureOnce} disabled={busy || !camReady}>
                   {busy ? <><Spinner /> Reading…</> : 'Single shot'}
                 </button>
                 <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
