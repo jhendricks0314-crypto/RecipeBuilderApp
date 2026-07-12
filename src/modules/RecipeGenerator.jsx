@@ -11,9 +11,27 @@ const DEFAULT_PREFS = {
   tools: ['Stove Top', 'Oven'],
   toolOptions: DEFAULT_TOOLS,
   exclusions: [],
+  nutrition: [],
+  nutritionOptions: NUTRITION_GOALS,
   diets: [],
+  dietOptions: DIET_PLANS,
   trends: false,
   onlyPantry: false,
+}
+
+// Merge saved prefs over defaults, and make sure any custom entry the household
+// added still shows up as a chip. (Earlier versions kept nutrition goals and
+// diets in one list — split them back apart so each can be cleared on its own.)
+function hydrate(saved) {
+  const p = { ...DEFAULT_PREFS, ...(saved || {}) }
+  if (saved?.diets?.length && saved.nutrition === undefined) {
+    p.nutrition = saved.diets.filter((d) => NUTRITION_GOALS.includes(d))
+    p.diets = saved.diets.filter((d) => !NUTRITION_GOALS.includes(d))
+  }
+  p.toolOptions = [...new Set([...(p.toolOptions || []), ...(p.tools || [])])]
+  p.nutritionOptions = [...new Set([...(p.nutritionOptions || []), ...(p.nutrition || [])])]
+  p.dietOptions = [...new Set([...(p.dietOptions || []), ...(p.diets || [])])]
+  return p
 }
 
 export default function RecipeGenerator() {
@@ -21,13 +39,13 @@ export default function RecipeGenerator() {
   const { user } = useAuth()
 
   // Household options live on the PROFILE, not the device — exclusions can be
-  // allergies, so they must apply to everyone in the family, on every device.
-  const [prefs, setPrefs] = useState(() => ({ ...DEFAULT_PREFS, ...(user?.profile?.prefs || {}) }))
+  // allergies, so they must hold for everyone in the family, on every device.
+  const [prefs, setPrefs] = useState(() => hydrate(user?.profile?.prefs))
   const [savedTick, setSavedTick] = useState(false)
   const loaded = useRef(false)
   const saveTimer = useRef()
 
-  // Auto-save on every change (debounced). No Save button.
+  // Auto-save every change (debounced). No Save button.
   useEffect(() => {
     if (!loaded.current) { loaded.current = true; return }
     clearTimeout(saveTimer.current)
@@ -46,6 +64,12 @@ export default function RecipeGenerator() {
     const cur = p[key] || []
     return { ...p, [key]: cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value] }
   })
+  // Adding a custom entry also selects it — that's why you added it.
+  const addOption = (optKey, selKey, value) => setPrefs((p) => ({
+    ...p,
+    [optKey]: [...new Set([...(p[optKey] || []), value])],
+    [selKey]: [...new Set([...(p[selKey] || []), value])],
+  }))
 
   // The pantry is always consulted; onlyPantry decides how strictly.
   const [pantry, setPantry] = useState([])
@@ -53,70 +77,77 @@ export default function RecipeGenerator() {
     api.getPantry().then((d) => setPantry((d.items || []).map((i) => i.name))).catch(() => {})
   }, [])
 
-  const [count, setCount] = usePersistentState('gen.count', 2)
+  const [kitchenOpen, setKitchenOpen] = usePersistentState('gen.kitchenOpen', false)
   const [whatToCook, setWhatToCook] = usePersistentState('gen.whatToCook', '')
-  const [results, setResults] = usePersistentState('gen.results', [])
-  const [savedIds, setSavedIds] = usePersistentState('gen.savedIds', {})
+  const [recipe, setRecipe] = usePersistentState('gen.recipe', null)
+  const [savedId, setSavedId] = usePersistentState('gen.savedId', null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [regenIdx, setRegenIdx] = useState(null)
+  const [revising, setRevising] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [command, setCommand] = useState('')
+  const [history, setHistory] = usePersistentState('gen.history', [])
 
   const generate = async () => {
     if (!whatToCook.trim()) { setError('Tell me what you want to cook.'); return }
-    setError(''); setBusy(true); setResults([]); setSavedIds({})
+    setError(''); setBusy(true); setRecipe(null); setSavedId(null); setHistory([])
     try {
       const { recipes } = await api.generateRecipes({
-        count,
+        count: 1,
         whatToCook: whatToCook.trim(),
         prefs,
         pantryItems: pantry,
       })
-      setResults(recipes)
+      setRecipe(recipes[0])
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 
   // Corrections continue this recipe's own conversation.
-  const revise = async (idx) => {
-    const r = results[idx]
-    const command = r._command?.trim()
-    if (!command) { setError('Tell me what to change about this recipe.'); return }
-    setError(''); setRegenIdx(idx)
+  const revise = async () => {
+    const cmd = command.trim()
+    if (!cmd) { setError('Tell me what to change about this recipe.'); return }
+    setError(''); setRevising(true)
     try {
-      const check = await api.validateCommand(command)
+      const check = await api.validateCommand(cmd)
       if (!check.related) {
         setError(`That isn't about the recipe: ${check.reason || 'try something food-related.'}`)
-        setRegenIdx(null); return
+        setRevising(false); return
       }
-      const { recipe } = await api.reviseRecipe(strip(r), command)
-      setResults((prev) => prev.map((x, i) => (
-        i === idx ? { ...recipe, _command: '', _history: [...(x._history || []), command] } : x
-      )))
-      setSavedIds((s) => { const n = { ...s }; delete n[idx]; return n })
-    } catch (e) { setError(e.message) } finally { setRegenIdx(null) }
+      const { recipe: revised } = await api.reviseRecipe(recipe, cmd)
+      setRecipe(revised)
+      setHistory((h) => [...h, cmd])
+      setCommand('')
+      setSavedId(null) // it's no longer the version that was saved
+    } catch (e) { setError(e.message) } finally { setRevising(false) }
   }
 
-  const saveAll = async () => {
+  const save = async () => {
     setSaving(true); setError('')
     try {
-      const { recipes } = await api.saveRecipes(results.map(strip))
-      const map = {}
-      recipes.forEach((r, i) => { map[i] = r.id })
-      setSavedIds(map); setResults(recipes)
-      return recipes
+      const { recipes } = await api.saveRecipes([recipe])
+      setRecipe(recipes[0]); setSavedId(recipes[0].id)
+      return recipes[0]
     } catch (e) { setError(e.message); return null } finally { setSaving(false) }
   }
 
   const saveAndBuildList = async () => {
-    const saved = await saveAll()
-    if (saved) navigate('/shopping', { state: { recipeIds: saved.map((r) => r.id), autoGenerate: true } })
+    const saved = await save()
+    if (saved) navigate('/shopping', { state: { recipeIds: [saved.id], autoGenerate: true } })
   }
+
+  const selectedDiet = [...prefs.nutrition, ...prefs.diets]
+  const kitchenSummary = [
+    `${prefs.people} ${prefs.people === 1 ? 'person' : 'people'}`,
+    prefs.tools.length ? prefs.tools.join(', ') : 'any equipment',
+    prefs.exclusions.length ? `no ${prefs.exclusions.join(', ')}` : null,
+    selectedDiet.length ? selectedDiet.join(', ') : null,
+  ].filter(Boolean).join(' · ')
 
   return (
     <div>
       <div className="section-title">Recipe Generator</div>
       <h1 className="page-h">What's cooking?</h1>
-      <p className="page-sub">Tell ForkCast what you're in the mood for. Your kitchen setup below is remembered and applied to every recipe.</p>
+      <p className="page-sub">Tell ForkCast what you're in the mood for. Your kitchen setup is remembered and applied every time.</p>
 
       {error && <Banner kind="error">{error}</Banner>}
 
@@ -128,20 +159,10 @@ export default function RecipeGenerator() {
           style={{ minHeight: 88 }}
           value={whatToCook}
           onChange={(e) => setWhatToCook(e.target.value)}
-          placeholder="e.g. Weeknight chicken dinners the kids will actually eat, plus one vegetarian night"
+          placeholder="e.g. Something with the chicken thighs in my fridge, quick enough for a weeknight"
         />
-        <div className="row-between" style={{ marginTop: 12 }}>
-          <span className="label" style={{ margin: 0 }}>How many recipes?</span>
-          <div className="chips">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <button key={n} className={`chip ${count === n ? 'on' : ''}`} onClick={() => setCount(n)}>{n}</button>
-            ))}
-          </div>
-        </div>
 
-        <hr className="perf" />
-
-        <div className="stack">
+        <div className="stack" style={{ marginTop: 14 }}>
           <Toggle
             on={prefs.trends}
             onChange={(v) => set({ trends: v })}
@@ -161,91 +182,136 @@ export default function RecipeGenerator() {
         </div>
 
         <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={generate} disabled={busy}>
-          {busy ? <><Spinner /> Designing recipes…</> : `Generate ${count} recipe${count > 1 ? 's' : ''}`}
+          {busy ? <><Spinner /> Designing your recipe…</> : 'Generate recipe'}
         </button>
       </div>
 
-      {/* --- Persistent kitchen options --- */}
+      {/* --- Persistent kitchen options (collapsible) --- */}
       <div className="card">
-        <div className="row-between">
-          <span className="section-title" style={{ marginBottom: 0 }}>Your kitchen</span>
-          <span className="muted" style={{ fontSize: 12 }}>{savedTick ? '✓ saved' : 'saved automatically'}</span>
-        </div>
-        <p className="muted" style={{ fontSize: 13, margin: '4px 0 14px' }}>
-          Applied to every recipe, for everyone on this family profile.
-        </p>
-
-        <div className="field">
-          <label className="label">How many people are you feeding?</label>
-          <input
-            className="input" type="number" min="1" max="30" style={{ width: 110 }}
-            value={prefs.people}
-            onChange={(e) => set({ people: Math.max(1, Number(e.target.value) || 1) })}
-          />
-        </div>
-
-        <ToolPicker prefs={prefs} set={set} toggleIn={toggleIn} />
-
-        <hr className="perf" />
-
-        <ListEditor
-          label="Never include these"
-          hint="Allergies or hard dislikes. Enforced on every recipe — including when hidden inside a sauce, mix, or marinade."
-          placeholder="Ranch, Red Meat, Peanut Butter…"
-          values={prefs.exclusions}
-          onAdd={(v) => set({ exclusions: [...new Set([...prefs.exclusions, v])] })}
-          onRemove={(v) => set({ exclusions: prefs.exclusions.filter((x) => x !== v) })}
-        />
-
-        <hr className="perf" />
-
-        <div className="field" style={{ marginBottom: 0 }}>
-          <div className="row-between">
-            <label className="label" style={{ margin: 0 }}>Nutrition goals</label>
-            {prefs.diets.length > 0 && (
-              <button className="linklike" onClick={() => set({ diets: [] })}>Clear all</button>
+        <button
+          onClick={() => setKitchenOpen(!kitchenOpen)}
+          aria-expanded={kitchenOpen}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left',
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit',
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              transform: kitchenOpen ? 'rotate(90deg)' : 'none',
+              transition: 'transform .15s', color: 'var(--saffron-deep)', fontSize: 13, lineHeight: 1,
+            }}
+          >
+            ▶
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span className="section-title" style={{ marginBottom: 0, display: 'block' }}>Your kitchen</span>
+            {!kitchenOpen && (
+              <span
+                className="muted"
+                style={{ fontSize: 12.5, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {kitchenSummary}
+              </span>
             )}
-          </div>
-          <div className="chips" style={{ marginTop: 8 }}>
-            {NUTRITION_GOALS.map((g) => (
-              <button key={g} className={`chip ${prefs.diets.includes(g) ? 'on' : ''}`} onClick={() => toggleIn('diets', g)}>{g}</button>
-            ))}
-          </div>
+          </span>
+          <span className="muted" style={{ fontSize: 12, flex: '0 0 auto' }}>
+            {savedTick ? '✓ saved' : kitchenOpen ? 'saved automatically' : 'edit'}
+          </span>
+        </button>
 
-          <label className="label" style={{ marginTop: 14 }}>Diets</label>
-          <div className="chips">
-            {DIET_PLANS.map((d) => (
-              <button key={d} className={`chip ${prefs.diets.includes(d) ? 'on' : ''}`} onClick={() => toggleIn('diets', d)}>{d}</button>
-            ))}
+        {kitchenOpen && (
+          <div style={{ marginTop: 14 }}>
+            <p className="muted" style={{ fontSize: 13, margin: '0 0 14px' }}>
+              Applied to every recipe, for everyone on this family profile.
+            </p>
+
+            <div className="field">
+              <label className="label">How many people are you feeding?</label>
+              <input
+                className="input" type="number" min="1" max="30" style={{ width: 110 }}
+                value={prefs.people}
+                onChange={(e) => set({ people: Math.max(1, Number(e.target.value) || 1) })}
+              />
+            </div>
+
+            <ChipPicker
+              label="What can you cook with?"
+              options={prefs.toolOptions}
+              selected={prefs.tools}
+              onToggle={(v) => toggleIn('tools', v)}
+              onAdd={(v) => addOption('toolOptions', 'tools', v)}
+              onClear={() => set({ tools: [] })}
+              clearLabel="Deselect all"
+              placeholder="Add a tool (Air Fryer, Slow Cooker…)"
+              hint={prefs.tools.length === 0
+                ? 'Nothing selected — recipes may use any equipment.'
+                : `Recipes will only need: ${prefs.tools.join(', ')}.`}
+            />
+
+            <hr className="perf" />
+
+            <ExclusionList
+              values={prefs.exclusions}
+              onAdd={(v) => set({ exclusions: [...new Set([...prefs.exclusions, v])] })}
+              onRemove={(v) => set({ exclusions: prefs.exclusions.filter((x) => x !== v) })}
+              onClear={() => set({ exclusions: [] })}
+            />
+
+            <hr className="perf" />
+
+            <ChipPicker
+              label="Nutrition goals"
+              options={prefs.nutritionOptions}
+              selected={prefs.nutrition}
+              onToggle={(v) => toggleIn('nutrition', v)}
+              onAdd={(v) => addOption('nutritionOptions', 'nutrition', v)}
+              onClear={() => set({ nutrition: [] })}
+              placeholder="Add a goal (Low potassium, High iron…)"
+            />
+
+            <div style={{ height: 16 }} />
+
+            <ChipPicker
+              label="Diets"
+              options={prefs.dietOptions}
+              selected={prefs.diets}
+              onToggle={(v) => toggleIn('diets', v)}
+              onAdd={(v) => addOption('dietOptions', 'diets', v)}
+              onClear={() => set({ diets: [] })}
+              placeholder="Add a diet (Halal, Kosher, Nut-free…)"
+            />
           </div>
-        </div>
+        )}
       </div>
 
-      {/* --- Results --- */}
-      {results.length > 0 && (
+      {/* --- Result --- */}
+      {recipe && (
         <>
-          <div className="divider-label">Your recipes</div>
-          <div className="stack">
-            {results.map((r, i) => (
-              <RecipeResult
-                key={r.id || i}
-                r={r}
-                saved={!!savedIds[i]}
-                busy={regenIdx === i}
-                onCommand={(v) => setResults((prev) => prev.map((x, idx) => (idx === i ? { ...x, _command: v } : x)))}
-                onRevise={() => revise(i)}
-              />
-            ))}
-          </div>
+          <div className="divider-label">Your recipe</div>
+          <RecipeResult
+            r={recipe}
+            saved={!!savedId}
+            history={history}
+            command={command}
+            busy={revising}
+            onCommand={setCommand}
+            onRevise={revise}
+          />
 
           <div className="btn-row" style={{ marginTop: 18 }}>
-            <button className="btn btn-dark" onClick={saveAll} disabled={saving}>
-              {saving ? <Spinner light /> : 'Save recipes'}
+            <button className="btn btn-dark" onClick={save} disabled={saving}>
+              {saving ? <Spinner light /> : 'Save recipe'}
             </button>
             <button className="btn btn-primary" onClick={saveAndBuildList} disabled={saving}>
               Save & build shopping list
             </button>
-            <button className="btn btn-ghost" onClick={() => { setResults([]); setSavedIds({}); setError('') }} disabled={saving}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => { setRecipe(null); setSavedId(null); setHistory([]); setCommand(''); setError('') }}
+              disabled={saving}
+            >
               Start over
             </button>
           </div>
@@ -289,59 +355,51 @@ function Toggle({ on, onChange, title, desc }) {
   )
 }
 
-function ToolPicker({ prefs, set, toggleIn }) {
-  const [adding, setAdding] = useState('')
-  const options = prefs.toolOptions?.length ? prefs.toolOptions : DEFAULT_TOOLS
-
-  const addTool = () => {
-    const v = adding.trim()
+// Multi-select chips you can also add your own entries to.
+function ChipPicker({ label, options, selected, onToggle, onAdd, onClear, clearLabel = 'Clear all', placeholder, hint }) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const v = draft.trim()
     if (!v) return
-    set({
-      toolOptions: [...new Set([...options, v])],
-      tools: [...new Set([...prefs.tools, v])], // adding it implies you have it
-    })
-    setAdding('')
+    onAdd(v)
+    setDraft('')
   }
-
   return (
     <div className="field" style={{ marginBottom: 0 }}>
       <div className="row-between">
-        <label className="label" style={{ margin: 0 }}>What can you cook with?</label>
-        {prefs.tools.length > 0 && (
-          <button className="linklike" onClick={() => set({ tools: [] })}>Deselect all</button>
-        )}
+        <label className="label" style={{ margin: 0 }}>{label}</label>
+        {selected.length > 0 && <button className="linklike" onClick={onClear}>{clearLabel}</button>}
       </div>
       <div className="chips" style={{ marginTop: 8 }}>
-        {options.map((t) => (
-          <button key={t} className={`chip ${prefs.tools.includes(t) ? 'on' : ''}`} onClick={() => toggleIn('tools', t)}>{t}</button>
+        {options.map((o) => (
+          <button key={o} className={`chip ${selected.includes(o) ? 'on' : ''}`} onClick={() => onToggle(o)}>{o}</button>
         ))}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <input
-          className="input" style={{ padding: '8px 12px' }} placeholder="Add a tool (Air Fryer, Slow Cooker…)"
-          value={adding} onChange={(e) => setAdding(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && addTool()}
+          className="input" style={{ padding: '8px 12px' }} placeholder={placeholder}
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
         />
-        <button className="btn btn-ghost btn-sm" onClick={addTool} disabled={!adding.trim()}>Add</button>
+        <button className="btn btn-ghost btn-sm" onClick={add} disabled={!draft.trim()}>Add</button>
       </div>
-      <div className="hint">
-        {prefs.tools.length === 0
-          ? 'Nothing selected — recipes may use any equipment.'
-          : `Recipes will only need: ${prefs.tools.join(', ')}.`}
-      </div>
+      {hint && <div className="hint">{hint}</div>}
     </div>
   )
 }
 
-function ListEditor({ label, hint, placeholder, values, onAdd, onRemove }) {
+function ExclusionList({ values, onAdd, onRemove, onClear }) {
   const [draft, setDraft] = useState('')
   const add = () => { const v = draft.trim(); if (v) { onAdd(v); setDraft('') } }
   return (
     <div className="field" style={{ marginBottom: 0 }}>
-      <label className="label">{label}</label>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className="row-between">
+        <label className="label" style={{ margin: 0 }}>Never include these</label>
+        {values.length > 0 && <button className="linklike" onClick={onClear}>Clear all</button>}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <input
-          className="input" placeholder={placeholder} value={draft}
+          className="input" placeholder="Ranch, Red Meat, Peanut Butter…" value={draft}
           onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()}
         />
         <button className="btn btn-ghost btn-sm" onClick={add} disabled={!draft.trim()}>Add</button>
@@ -358,12 +416,14 @@ function ListEditor({ label, hint, placeholder, values, onAdd, onRemove }) {
           ))}
         </div>
       )}
-      <div className="hint">{hint}</div>
+      <div className="hint">
+        Allergies or hard dislikes. Enforced on every recipe — including when hidden inside a sauce, mix, or marinade.
+      </div>
     </div>
   )
 }
 
-function RecipeResult({ r, saved, busy, onCommand, onRevise }) {
+function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise }) {
   const toBuy = (r.ingredients || []).filter((i) => !i.have)
   const have = (r.ingredients || []).filter((i) => i.have)
 
@@ -392,7 +452,7 @@ function RecipeResult({ r, saved, busy, onCommand, onRevise }) {
         <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>✨ {r.highlights}</div>
       )}
 
-      <details style={{ marginTop: 12 }}>
+      <details style={{ marginTop: 12 }} open>
         <summary style={{ cursor: 'pointer', fontWeight: 600, color: 'var(--saffron-deep)' }}>
           Ingredients & steps
         </summary>
@@ -427,15 +487,15 @@ function RecipeResult({ r, saved, busy, onCommand, onRevise }) {
 
       <hr className="perf" />
       <label className="label">Refine this recipe</label>
-      {r._history?.length > 0 && (
+      {history.length > 0 && (
         <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>
-          {r._history.map((h, k) => <div key={k}>↳ {h}</div>)}
+          {history.map((h, k) => <div key={k}>↳ {h}</div>)}
         </div>
       )}
       <div style={{ display: 'flex', gap: 8 }}>
         <input
           className="input" placeholder='e.g. "less spicy" or "swap in tofu"'
-          value={r._command || ''} onChange={(e) => onCommand(e.target.value)}
+          value={command} onChange={(e) => onCommand(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onRevise()}
         />
         <button className="btn btn-ghost" onClick={onRevise} disabled={busy}>
@@ -445,10 +505,4 @@ function RecipeResult({ r, saved, busy, onCommand, onRevise }) {
       <div className="hint">Corrections build on this recipe — it keeps the original dish and your earlier changes.</div>
     </div>
   )
-}
-
-// Strip UI-only fields before saving / sending (keep `thread` — the model needs it).
-function strip(r) {
-  const { _command, _history, ...rest } = r
-  return rest
 }

@@ -64,7 +64,9 @@ function constraints(prefs = {}, pantryItems = []) {
     out.push(`HARD EXCLUSIONS — the recipe must contain NONE of these, in any form, including as a hidden component of a sauce, mix, marinade, or garnish: ${excl.join(', ')}. Treat these as strict (they may be allergies or firm dislikes). If a classic version of the dish needs one, substitute it and say so in the summary.`)
   }
 
-  const diets = (prefs.diets || []).filter(Boolean)
+  // Nutrition goals and named diets are stored separately but constrain the
+  // same thing — the model gets them as one set of dietary requirements.
+  const diets = [...(prefs.nutrition || []), ...(prefs.diets || [])].filter(Boolean)
   if (diets.length) {
     out.push(`Dietary requirements: ${diets.join(', ')}. The recipe must genuinely satisfy these, not merely gesture at them.`)
   }
