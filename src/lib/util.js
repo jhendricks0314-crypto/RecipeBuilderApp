@@ -90,6 +90,22 @@ export const CUISINES = [
   'Southern / Soul', 'Cajun', 'BBQ', 'Vegetarian', 'Vegan',
 ]
 export const TOOLS = ['Grill', 'Pellet Smoker', 'Oven', 'Stove Top', 'Nothing']
+
+// Cooking tools the household starts with — they can add their own.
+export const DEFAULT_TOOLS = ['Stove Top', 'Oven', 'Smoker', 'Grill']
+
+// Nutrition targets (things to keep low / high).
+export const NUTRITION_GOALS = [
+  'Low calorie', 'Low sodium', 'Low cholesterol', 'Low saturated fat',
+  'Low sugar', 'Low carb', 'High protein', 'High fiber', 'Heart healthy',
+]
+
+// Popular named diets.
+export const DIET_PLANS = [
+  'Keto', 'Atkins', 'Paleo', 'Whole30', 'Mediterranean', 'DASH',
+  'Vegetarian', 'Vegan', 'Pescatarian', 'Gluten-free', 'Dairy-free',
+  'Low-FODMAP', 'Diabetic-friendly', 'Anti-inflammatory', 'Carnivore',
+]
 export const TIMES = [
   { key: 'quick', label: 'Quick' },
   { key: 'moderate', label: '30–45 min' },

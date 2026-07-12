@@ -26,6 +26,7 @@ export default async (req) => {
           ownerEmail: user.profile.ownerEmail,
           displayName: user.profile.displayName,
           zip: user.profile.zip || '',
+          prefs: user.profile.prefs || {},
           members: user.profile.members || [],
         }
       : null,

@@ -34,8 +34,8 @@ export const api = {
 
   generateRecipes: (body) => request('generate-recipes', { method: 'POST', body }),
   // Revise ONE recipe by continuing its own conversation thread.
-  reviseRecipe: (recipe, command, budget) =>
-    request('generate-recipes', { method: 'POST', body: { revise: true, recipe, command, budget } }),
+  reviseRecipe: (recipe, command) =>
+    request('generate-recipes', { method: 'POST', body: { revise: true, recipe, command } }),
   validateCommand: (command) => request('validate-command', { method: 'POST', body: { command } }),
 
   listRecipes: () => request('recipes'),

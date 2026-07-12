@@ -36,6 +36,7 @@ export default async (req) => {
         ownerEmail: user.email,
         displayName: body.displayName.trim(),
         zip: (body.zip || '').trim(), // used for price estimates; persists until changed
+        prefs: {},                     // household cooking preferences
         members: [{ email: user.email, role: 'owner', addedAt: new Date().toISOString() }],
         preferredStores: [],
         createdAt: new Date().toISOString(),
@@ -96,6 +97,12 @@ export default async (req) => {
       if (body.displayName) profile.displayName = body.displayName.trim()
       if (body.zip !== undefined) profile.zip = String(body.zip || '').trim()
       if (Array.isArray(body.preferredStores)) profile.preferredStores = body.preferredStores
+      // Household cooking preferences (people, tools, exclusions, diets, toggles).
+      // Stored on the profile, not the device, so allergy exclusions apply to
+      // everyone in the family no matter who is generating the recipe.
+      if (body.prefs && typeof body.prefs === 'object') {
+        profile.prefs = { ...(profile.prefs || {}), ...body.prefs }
+      }
       await writeJSON(stores.profiles(), profile.id, profile)
       return ok({ profile })
     }

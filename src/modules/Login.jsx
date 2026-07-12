@@ -11,7 +11,7 @@ export default function Login() {
         </div>
         <h1>Fork<span className="dot">Cast</span></h1>
         <p style={{ fontSize: 17, margin: '10px 0 28px' }}>
-          Plan meals with AI, build budget shopping lists, and turn your receipts
+          Plan meals with AI, build smart shopping lists, and turn your receipts
           into real prices. Cook well, spend smart.
         </p>
         <button className="google-btn" onClick={login}>

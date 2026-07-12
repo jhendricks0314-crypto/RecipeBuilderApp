@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
 import { Banner, Loading, Empty, RecipeIcon, Stars, Modal, Spinner, Toast } from '../components/ui.jsx'
-import { money, stamp, fromNow, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
+import { stamp, fromNow, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
 
 export default function Recipes() {
   const navigate = useNavigate()
@@ -22,9 +22,8 @@ export default function Recipes() {
   const [fAudience, setFAudience] = useState('')
   const [fServings, setFServings] = useState('')
   const [fRating, setFRating] = useState('')
-  const [fMaxCost, setFMaxCost] = useState('')
-  const anyFilter = q || fCuisine || fTool || fTime || fAudience || fServings || fRating || fMaxCost
-  const clearFilters = () => { setQ(''); setFCuisine(''); setFTool(''); setFTime(''); setFAudience(''); setFServings(''); setFRating(''); setFMaxCost('') }
+  const anyFilter = q || fCuisine || fTool || fTime || fAudience || fServings || fRating
+  const clearFilters = () => { setQ(''); setFCuisine(''); setFTool(''); setFTime(''); setFAudience(''); setFServings(''); setFRating('') }
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 1600) }
   const load = () => api.listRecipes().then((d) => setRecipes(d.recipes)).catch((e) => setError(e.message))
@@ -48,10 +47,9 @@ export default function Recipes() {
       if (fAudience && !audienceOk(fAudience, r.audience)) return false
       if (fServings && (r.servings || 0) < Number(fServings)) return false
       if (fRating && (r.rating || 0) < Number(fRating)) return false
-      if (fMaxCost && r.estimatedCost > Number(fMaxCost)) return false
       return true
     })
-  }, [recipes, q, fCuisine, fTool, fTime, fAudience, fServings, fRating, fMaxCost])
+  }, [recipes, q, fCuisine, fTool, fTime, fAudience, fServings, fRating])
 
   const open = recipes?.find((r) => r.id === openId)
   const selectedIds = Object.keys(selected).filter((id) => selected[id])
@@ -117,7 +115,6 @@ export default function Recipes() {
               <input className="input" type="number" min="1" placeholder="Serves at least…" value={fServings} onChange={(e) => setFServings(e.target.value)} />
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-              <input className="input" type="number" placeholder="Max cost $" value={fMaxCost} onChange={(e) => setFMaxCost(e.target.value)} style={{ width: 140 }} />
               {anyFilter && <button className="linklike" onClick={clearFilters}>Clear filters</button>}
             </div>
           </div>
@@ -157,8 +154,7 @@ export default function Recipes() {
                     <p className="muted" style={{ margin: '3px 0 0', fontSize: 13.5 }}>{r.summary}</p>
                     <div className="recipe-meta">
                       <span className="tag">{r.cuisine}</span>
-                      <span className="tag cost">{money(r.estimatedCost)}</span>
-                      {r.rating > 0 && <span className="tag" style={{ background: 'rgba(224,168,46,0.16)', color: 'var(--saffron-deep)' }}>★ {r.rating}</span>}
+                                    {r.rating > 0 && <span className="tag" style={{ background: 'rgba(224,168,46,0.16)', color: 'var(--saffron-deep)' }}>★ {r.rating}</span>}
                     </div>
                   </div>
                 </div>
@@ -248,7 +244,6 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
             <span className="tag">{recipe.tool}</span>
             <span className="tag">{recipe.estimatedTimeMinutes} min</span>
             <span className="tag">Serves {recipe.servings}</span>
-            <span className="tag cost">{money(recipe.estimatedCost)}</span>
           </div>
           <div className="timestamp" style={{ marginTop: 6 }}>Generated {stamp(recipe.generatedAt)}</div>
         </div>
@@ -287,7 +282,10 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
       <span className="label">Ingredients</span>
       <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
         {recipe.ingredients?.map((ing, k) => (
-          <li key={k} style={{ marginBottom: 3 }}>{ing.quantity} {ing.item} {ing.estCost ? <span className="price muted">· {money(ing.estCost)}</span> : null}{ing.have ? <span className="tag" style={{ background: 'rgba(59,122,87,0.15)', color: 'var(--basil)', marginLeft: 6, fontSize: 10.5 }}>have</span> : null}</li>
+          <li key={k} style={{ marginBottom: 3 }}>
+            {ing.quantity} {ing.item}
+            {ing.have && <span className="basil" style={{ fontSize: 12 }}> · have it</span>}
+          </li>
         ))}
       </ul>
 

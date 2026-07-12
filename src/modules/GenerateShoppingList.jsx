@@ -114,7 +114,7 @@ export default function GenerateShoppingList() {
                 <RecipeIcon recipe={r} className="recipe-icon" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700 }}>{r.name}</div>
-                  <div className="muted" style={{ fontSize: 13 }}>{r.ingredients?.length || 0} ingredients · {money(r.estimatedCost)}</div>
+                  <div className="muted" style={{ fontSize: 13 }}>{r.ingredients?.length || 0} ingredients</div>
                 </div>
               </label>
             ))}
