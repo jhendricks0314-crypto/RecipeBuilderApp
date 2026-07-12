@@ -9,7 +9,7 @@ export default function Profile() {
   const isOwner = user?.role === 'owner'
 
   const [displayName, setDisplayName] = useState(p?.displayName || '')
-  const [phone, setPhone] = useState(p?.phone || '')
+  const [zip, setZip] = useState(p?.zip || '')
   const [newMember, setNewMember] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -37,12 +37,13 @@ export default function Profile() {
           <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={!isOwner} />
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
-          <label className="label">Cell number</label>
-          <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!isOwner} inputMode="tel" />
+          <label className="label">ZIP code</label>
+          <input className="input" value={zip} onChange={(e) => setZip(e.target.value)} disabled={!isOwner} inputMode="numeric" placeholder="72701" />
+          <div className="hint">Used to estimate grocery prices. Saved until you change it.</div>
         </div>
         {isOwner && (
           <button className="btn btn-dark btn-sm" style={{ marginTop: 14 }}
-            onClick={() => run('save', () => api.updateProfile({ displayName, phone }), 'Profile updated')} disabled={busy === 'save'}>
+            onClick={() => run('save', () => api.updateProfile({ displayName, zip }), 'Saved')} disabled={busy === 'save'}>
             {busy === 'save' ? <Spinner light /> : 'Save changes'}
           </button>
         )}

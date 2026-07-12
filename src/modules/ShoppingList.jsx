@@ -13,7 +13,6 @@ export default function ShoppingList() {
   const [toast, setToast] = useState('')
   const [zip, setZip] = usePersistentState('shop.zip', '') // remember pricing ZIP
   const [pricing, setPricing] = useState(false)
-  const [remaining, setRemaining] = useState(0)
 
   useEffect(() => {
     api.listShoppingLists()
@@ -39,20 +38,39 @@ export default function ShoppingList() {
   }
   const removeItem = (itemId) => persist({ ...active, items: active.items.filter((it) => it.id !== itemId) })
 
-  const refreshPrices = async (force = false) => {
+  // Recorded prices (receipts/barcode/manual) always win; anything unpriced gets
+  // an AI estimate for this ZIP. The ZIP is saved to the profile and persists.
+  const priceList = async (force = false) => {
     if (!active) return
     setPricing(true); setError('')
     try {
-      const { list, refreshed, remaining } = await api.scrapePrices(active.id, zip.trim() || undefined, force)
+      const { list, estimated, note } = await api.estimatePrices(active.id, zip.trim() || undefined, force)
       setActive(list)
       setLists((ls) => ls.map((l) => (l.id === list.id ? list : l)))
-      setRemaining(remaining)
-      flash(remaining > 0 ? `Priced ${refreshed} — ${remaining} left, tap again` : `Prices updated (${refreshed})`)
+      flash(note || `Prices updated${estimated ? ` (${estimated} estimated)` : ''}`)
     } catch (e) {
-      setError(e.message === 'Failed to fetch' ? 'Price refresh failed.' : e.message)
+      setError(e.message)
     } finally {
       setPricing(false)
     }
+  }
+
+  // Pantry substitution: the user decides. Accepting removes the item from the
+  // buy list (they'll make it from what they already have).
+  const decideSub = async (sub, accepted) => {
+    const next = {
+      ...active,
+      substitutions: active.substitutions.map((s) =>
+        s.itemId === sub.itemId ? { ...s, decision: accepted ? 'accepted' : 'declined' } : s
+      ),
+      items: accepted
+        ? active.items.map((i) => (i.id === sub.itemId ? { ...i, removed: true, substituted: true } : i))
+        : active.items,
+    }
+    setActive(next)
+    setLists((ls) => ls.map((l) => (l.id === next.id ? next : l)))
+    try { await api.updateShoppingList(next) } catch (e) { setError(e.message) }
+    flash(accepted ? `Making it from your pantry instead` : 'Keeping it on the list')
   }
 
   const left = useMemo(() => active?.items.filter((i) => !i.checked).length || 0, [active])
@@ -104,11 +122,35 @@ export default function ShoppingList() {
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
                 <input className="input" style={{ width: 110, padding: '8px 10px' }} placeholder="ZIP" value={zip}
                   inputMode="numeric" onChange={(e) => setZip(e.target.value)} aria-label="ZIP for pricing" />
-                <button className="btn btn-dark btn-sm" onClick={() => refreshPrices(false)} disabled={pricing}>
-                  {pricing ? <><Spinner light /> Pricing…</> : remaining > 0 ? `Refresh more (${remaining} left)` : '↻ Update live prices'}
+                <button className="btn btn-dark btn-sm" onClick={() => priceList(false)} disabled={pricing}>
+                  {pricing ? <><Spinner light /> Pricing…</> : '↻ Update prices'}
                 </button>
-                <span className="muted" style={{ fontSize: 12 }}>pulls current prices where a source is set up</span>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  recorded prices first, estimates for the rest
+                </span>
               </div>
+
+              {/* Pantry substitutions — the user decides */}
+              {active.substitutions?.filter((s) => !s.decision).map((sub) => (
+                <div key={sub.itemId} className="banner warn" style={{ textAlign: 'left' }}>
+                  <strong>Make it instead of buying it?</strong>
+                  <div style={{ marginTop: 4 }}>
+                    {sub.note || `You could make ${sub.itemName} from what's in your pantry.`}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
+                    Uses: {sub.makeFrom.join(', ')}
+                  </div>
+                  <div className="btn-row" style={{ marginTop: 10 }}>
+                    <button className="btn btn-primary btn-sm" onClick={() => decideSub(sub, true)}>
+                      Make from pantry — drop {sub.itemName}
+                    </button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => decideSub(sub, false)}>
+                      No, buy it
+                    </button>
+                  </div>
+                </div>
+              ))}
+
               <hr className="perf" />
 
               <div>
@@ -118,7 +160,12 @@ export default function ShoppingList() {
                       {it.checked ? '✓' : ''}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="name" style={{ fontWeight: 600 }}>{it.name}</div>
+                      <div className="name" style={{ fontWeight: 600 }}>
+                        {it.name}
+                        {it.inPantry && <span className="tag" style={{ background: 'rgba(59,122,87,0.15)', color: 'var(--basil)', marginLeft: 6, fontSize: 10.5 }}>in pantry</span>}
+                        {it.substituted && <span className="tag" style={{ background: 'rgba(224,168,46,0.18)', color: 'var(--saffron-deep)', marginLeft: 6, fontSize: 10.5 }}>making it</span>}
+                      </div>
+                      {it.pantryNote && <div className="muted" style={{ fontSize: 12 }}>{it.pantryNote}</div>}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2, flexWrap: 'wrap' }}>
                         <input
                           className="input" style={{ width: 130, padding: '4px 8px', fontSize: 12.5 }}
@@ -136,17 +183,25 @@ export default function ShoppingList() {
                           >
                             {it.priceByStore.map((p) => (
                               <option key={p.store} value={p.store}>
-                                {p.store} · {money(p.price)}{p.source === 'live' ? ' · live' : ''}
+                                {p.store} · {money(p.price)}
                               </option>
                             ))}
                           </select>
+                        ) : it.priceSource === 'estimated' ? (
+                          <span className="muted" style={{ fontSize: 12 }}>
+                            estimated{it.estimateUnit ? ` · ${it.estimateUnit}` : ''}
+                          </span>
                         ) : (
-                          <span className="muted" style={{ fontSize: 12 }}>no price data yet</span>
+                          <span className="muted" style={{ fontSize: 12 }}>tap "Update prices"</span>
                         )}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      {it.bestPrice != null && <div className="price">{money(it.bestPrice)}</div>}
+                      {it.bestPrice != null && (
+                        <div className="price" style={it.priceSource === 'estimated' ? { opacity: 0.75 } : undefined}>
+                          {it.priceSource === 'estimated' ? '~' : ''}{money(it.bestPrice)}
+                        </div>
+                      )}
                       <button className="linklike tomato" style={{ fontSize: 12 }} onClick={() => removeItem(it.id)}>remove</button>
                     </div>
                   </div>

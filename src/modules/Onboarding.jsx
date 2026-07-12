@@ -8,7 +8,7 @@ import { IconFork } from '../components/icons.jsx'
 export default function Onboarding() {
   const { user, refresh, logout } = useAuth()
   const [displayName, setDisplayName] = usePersistentState('onboarding.displayName', user?.name || '')
-  const [phone, setPhone] = usePersistentState('onboarding.phone', '')
+  const [zip, setZip] = usePersistentState('onboarding.zip', '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -16,7 +16,7 @@ export default function Onboarding() {
     setError('')
     setBusy(true)
     try {
-      await api.createProfile({ displayName, phone })
+      await api.createProfile({ displayName, zip })
       clearDraftsFor(user?.email) // onboarding done — drop its cached fields
       await refresh()
     } catch (e) {
@@ -34,23 +34,23 @@ export default function Onboarding() {
         </div>
         <h1 style={{ fontSize: 32 }}>Set up your kitchen</h1>
         <p style={{ margin: '8px 0 22px' }}>
-          You're signed in as {user?.email}. Create your profile — you'll be the
-          owner and can invite others later.
+          You're signed in as {user?.email}. Create your family kitchen — you'll be
+          the owner and can invite the rest of the family later.
         </p>
 
         <div className="card" style={{ textAlign: 'left', color: 'var(--ink)' }}>
           {error && <Banner kind="error">{error}</Banner>}
           <div className="field">
-            <label className="label">Profile name</label>
+            <label className="label">Family name</label>
             <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="The Hendricks Kitchen" />
           </div>
           <div className="field">
-            <label className="label">Cell number</label>
-            <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 123 4567" inputMode="tel" />
-            <div className="hint">Used so friends can share recipes with you by number.</div>
+            <label className="label">ZIP code <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></label>
+            <input className="input" value={zip} onChange={(e) => setZip(e.target.value)} placeholder="72701" inputMode="numeric" />
+            <div className="hint">Used to estimate grocery prices for your area. You can change it any time.</div>
           </div>
-          <button className="btn btn-primary btn-block" onClick={submit} disabled={busy}>
-            {busy ? <Spinner /> : 'Create profile'}
+          <button className="btn btn-primary btn-block" onClick={submit} disabled={busy || !displayName.trim()}>
+            {busy ? <Spinner /> : 'Create family kitchen'}
           </button>
         </div>
 

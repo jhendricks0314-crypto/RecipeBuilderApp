@@ -85,7 +85,7 @@ export default function Pantry() {
         <div className="chips" style={{ marginBottom: 14 }}>
           <button className={`chip ${mode === 'manual' ? 'on' : ''}`} onClick={() => setMode('manual')}>Add by hand</button>
           <button className={`chip ${mode === 'barcode' ? 'on' : ''}`} onClick={() => setMode('barcode')}><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>Scan barcode</span></button>
-          <button className={`chip ${mode === 'photo' ? 'on' : ''}`} onClick={() => setMode('photo')}>Snap a photo</button>
+          <button className={`chip ${mode === 'photo' ? 'on' : ''}`} onClick={() => setMode('photo')}>Scan / photo</button>
         </div>
         {mode === 'manual' && <ManualAdd onAdd={(it) => addItems([it])} />}
         {mode === 'barcode' && <BarcodeButton onAdd={addItems} />}
@@ -282,10 +282,17 @@ function PhotoButton({ onAdd }) {
 function PhotoIdentify({ onAdd, onClose }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [found, setFound] = useState(null) // array of { name, category, quantity, on }
+  const scanningRef = useRef(false)
+  const foundRef = useRef(new Map())   // normalized name -> { name, category, quantity, sightings, on }
 
+  const [err, setErr] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [frames, setFrames] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [found, setFound] = useState(null)      // review list (after stopping)
+  const [live, setLive] = useState([])          // what we've spotted so far
+
+  // Camera on while the modal is open.
   useEffect(() => {
     let cancelled = false
     navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
@@ -295,34 +302,105 @@ function PhotoIdentify({ onAdd, onClose }) {
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}) }
       })
       .catch((e) => setErr(cameraMessage(e)))
-    return () => { cancelled = true; streamRef.current?.getTracks().forEach((t) => t.stop()) }
+    return () => {
+      cancelled = true
+      scanningRef.current = false
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    }
   }, [])
 
-  const identifyFromDataUrl = async (dataUrl) => {
-    setBusy(true); setErr('')
-    try {
-      const [meta, b64] = dataUrl.split(',')
-      const media = /data:(.*?);/.exec(meta)?.[1] || 'image/jpeg'
-      const { items } = await api.identifyPantry({ imageBase64: b64, mediaType: media })
-      if (!items.length) setErr('No items recognized. Try better lighting or add by hand.')
-      setFound(items.map((i) => ({ ...i, category: normalizeCategory(i.category), on: true })))
-    } catch (e) { setErr(e.message) } finally { setBusy(false) }
+  const key = (name) => (name || '').toLowerCase().replace(/[^a-z\s]/g, '').replace(/s\b/g, '').replace(/\s+/g, ' ').trim()
+
+  // Merge one frame's results into the running set. Seeing an item in more than
+  // one frame raises confidence — this is what fixes the "grapes only at some
+  // angles" problem: we take the UNION across the whole sweep.
+  const merge = (items) => {
+    const map = foundRef.current
+    for (const it of items) {
+      const k = key(it.name)
+      if (!k) continue
+      const prev = map.get(k)
+      if (prev) prev.sightings += 1
+      else map.set(k, { name: it.name, category: normalizeCategory(it.category), quantity: it.quantity || '', sightings: 1, on: true })
+    }
+    setLive([...map.values()].sort((a, b) => b.sightings - a.sightings))
   }
 
-  const capture = () => {
+  // Grab a frame, downscaled to keep each request fast.
+  const grabFrame = () => {
     const v = videoRef.current
-    if (!v || !v.videoWidth) { setErr('Camera not ready yet.'); return }
+    if (!v || !v.videoWidth) return null
+    const maxW = 1024
+    const scale = Math.min(1, maxW / v.videoWidth)
     const canvas = document.createElement('canvas')
-    canvas.width = v.videoWidth; canvas.height = v.videoHeight
-    canvas.getContext('2d').drawImage(v, 0, 0)
-    identifyFromDataUrl(canvas.toDataURL('image/jpeg', 0.8))
+    canvas.width = Math.round(v.videoWidth * scale)
+    canvas.height = Math.round(v.videoHeight * scale)
+    canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.7)
+  }
+
+  const identify = async (dataUrl) => {
+    const [meta, b64] = dataUrl.split(',')
+    const media = /data:(.*?);/.exec(meta)?.[1] || 'image/jpeg'
+    const { items } = await api.identifyPantry({ imageBase64: b64, mediaType: media })
+    return items || []
+  }
+
+  // Continuous sweep: one frame at a time (sequential, so requests never pile up).
+  const startScan = async () => {
+    setErr(''); setScanning(true); scanningRef.current = true
+    while (scanningRef.current) {
+      const frame = grabFrame()
+      if (!frame) { await sleep(400); continue }
+      try {
+        const items = await identify(frame)
+        if (!scanningRef.current) break
+        merge(items)
+        setFrames((n) => n + 1)
+      } catch (e) {
+        // One bad frame shouldn't end the sweep.
+        if (!scanningRef.current) break
+        setErr(e.message)
+      }
+      await sleep(1200) // breathe between frames
+    }
+  }
+
+  const stopScan = () => {
+    scanningRef.current = false
+    setScanning(false)
+    const all = [...foundRef.current.values()].sort((a, b) => b.sightings - a.sightings)
+    if (!all.length) { setErr('Nothing recognized. Try more light, or add by hand.'); return }
+    setFound(all)
+  }
+
+  // Single shot / upload still available.
+  const captureOnce = async () => {
+    const frame = grabFrame()
+    if (!frame) { setErr('Camera not ready yet.'); return }
+    setBusy(true); setErr('')
+    try {
+      merge(await identify(frame))
+      setFrames((n) => n + 1)
+      const all = [...foundRef.current.values()].sort((a, b) => b.sightings - a.sightings)
+      if (!all.length) setErr('No items recognized. Try better lighting or add by hand.')
+      else setFound(all)
+    } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
   const onUpload = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
-    reader.onload = () => identifyFromDataUrl(reader.result)
+    reader.onload = async () => {
+      setBusy(true); setErr('')
+      try {
+        merge(await identify(reader.result))
+        const all = [...foundRef.current.values()].sort((a, b) => b.sightings - a.sightings)
+        if (!all.length) setErr('No items recognized in that photo.')
+        else setFound(all)
+      } catch (e2) { setErr(e2.message) } finally { setBusy(false) }
+    }
     reader.readAsDataURL(file)
   }
 
@@ -331,51 +409,117 @@ function PhotoIdentify({ onAdd, onClose }) {
     onClose()
   }
 
+  const rescan = () => {
+    setFound(null)
+    setErr('')
+  }
+
   return (
-    <Modal title="Identify from a photo" onClose={onClose}>
+    <Modal title={found ? 'Review what I found' : 'Scan your pantry'} onClose={onClose}>
       {!found && (
         <>
           {err && <Banner kind="warn">{err}</Banner>}
-          {!err && (
-            <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
-              <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+          <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '4/3' }}>
+            <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline />
+            {scanning && (
+              <div style={{
+                position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 8,
+                background: 'rgba(22,35,28,0.75)', color: '#fff', padding: '6px 12px', borderRadius: 999,
+                fontSize: 12.5, fontWeight: 700,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--tomato)' }} />
+                Scanning · {frames} frame{frames !== 1 ? 's' : ''}
+              </div>
+            )}
+          </div>
+
+          <p className="muted" style={{ fontSize: 13.5, marginBottom: 8 }}>
+            {scanning
+              ? 'Sweep the camera slowly across your shelves. Items are added as they\'re spotted — different angles catch different things.'
+              : 'Press start, then pan slowly across your pantry or fridge.'}
+          </p>
+
+          {live.length > 0 && (
+            <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+              <div className="row-between" style={{ marginBottom: 6 }}>
+                <span className="label" style={{ margin: 0 }}>Spotted so far</span>
+                <span className="pill-count">{live.length}</span>
+              </div>
+              <div className="chips">
+                {live.slice(0, 24).map((i) => (
+                  <span key={i.name} className="chip" style={{ cursor: 'default' }}>
+                    {categoryEmoji(i.category)} {i.name}
+                    {i.sightings > 1 && <span className="mono muted" style={{ marginLeft: 4, fontSize: 11 }}>×{i.sightings}</span>}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
-          <div className="btn-row" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" onClick={capture} disabled={busy || !!err}>{busy ? <><Spinner /> Reading…</> : 'Capture & identify'}</button>
-            <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
-              Upload photo
-              <input type="file" accept="image/*" hidden onChange={onUpload} />
-            </label>
+
+          <div className="btn-row">
+            {!scanning ? (
+              <button className="btn btn-primary" onClick={startScan} disabled={busy || !!streamRef.current === false}>
+                ● Start scan
+              </button>
+            ) : (
+              <button className="btn btn-danger" onClick={stopScan}>■ Stop scan</button>
+            )}
+            {!scanning && (
+              <>
+                <button className="btn btn-ghost" onClick={captureOnce} disabled={busy}>
+                  {busy ? <><Spinner /> Reading…</> : 'Single shot'}
+                </button>
+                <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
+                  Upload photo
+                  <input type="file" accept="image/*" hidden onChange={onUpload} />
+                </label>
+              </>
+            )}
+            {!scanning && live.length > 0 && (
+              <button className="btn btn-dark" onClick={() => setFound([...foundRef.current.values()].sort((a, b) => b.sightings - a.sightings))}>
+                Review {live.length}
+              </button>
+            )}
           </div>
         </>
       )}
 
       {found && (
         <>
-          <p className="muted" style={{ marginTop: 0, fontSize: 14 }}>Found {found.length} item{found.length !== 1 ? 's' : ''}. Untick anything wrong, tweak categories, then add.</p>
+          {err && <Banner kind="warn">{err}</Banner>}
+          <p className="muted" style={{ marginTop: 0, fontSize: 14 }}>
+            Found {found.length} item{found.length !== 1 ? 's' : ''} across {frames} frame{frames !== 1 ? 's' : ''}.
+            Untick anything wrong, fix names or categories, then add.
+          </p>
           <div className="stack">
             {found.map((it, i) => (
               <div key={i} className="check-row" style={{ padding: '8px 0' }}>
                 <span className={`checkbox ${it.on ? 'on' : ''}`} onClick={() => setFound((f) => f.map((x, idx) => (idx === i ? { ...x, on: !x.on } : x)))}>{it.on ? '✓' : ''}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <input className="input" style={{ padding: '6px 10px' }} value={it.name} onChange={(e) => setFound((f) => f.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))} />
-                  <select className="select" style={{ padding: '6px 10px', marginTop: 6 }} value={it.category} onChange={(e) => setFound((f) => f.map((x, idx) => (idx === i ? { ...x, category: e.target.value } : x)))}>
-                    {PANTRY_CATEGORIES.map((c) => <option key={c} value={c}>{categoryEmoji(c)} {c}</option>)}
-                  </select>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                    <select className="select" style={{ padding: '6px 10px' }} value={it.category} onChange={(e) => setFound((f) => f.map((x, idx) => (idx === i ? { ...x, category: e.target.value } : x)))}>
+                      {PANTRY_CATEGORIES.map((c) => <option key={c} value={c}>{categoryEmoji(c)} {c}</option>)}
+                    </select>
+                    {it.sightings > 1 && <span className="muted mono" style={{ fontSize: 11 }}>seen ×{it.sightings}</span>}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
           <div className="btn-row" style={{ marginTop: 14 }}>
-            <button className="btn btn-primary" onClick={addSelected} disabled={!found.some((i) => i.on)}>Add selected</button>
-            <button className="btn btn-ghost" onClick={() => setFound(null)}>Retake</button>
+            <button className="btn btn-primary" onClick={addSelected} disabled={!found.some((i) => i.on)}>
+              Add {found.filter((i) => i.on).length} to pantry
+            </button>
+            <button className="btn btn-ghost" onClick={rescan}>Scan more</button>
           </div>
         </>
       )}
     </Modal>
   )
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ---- A single pantry row (inline edit) ------------------------------------
 function PantryRow({ item, onEdit, onRemove }) {

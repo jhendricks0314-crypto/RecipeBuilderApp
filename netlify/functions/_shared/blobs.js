@@ -10,7 +10,7 @@ export const stores = {
   shoppingLists: () => getStore('shopping-lists'),
   receiptItems: () => getStore('receipt-items'), // shared price DB (food only)
   pantry: () => getStore('pantry'),            // profileId -> { items: [...] }
-  priceCache: () => getStore('price-cache'),   // scraped/live prices + tokens (TTL)
+  priceCache: () => getStore('price-cache'),   // cached AI price estimates (TTL)
   logs: () => getStore('logs'),                // logId -> LogEntry
 }
 

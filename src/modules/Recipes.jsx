@@ -367,7 +367,7 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
 }
 
 function ShareModal({ recipeIds, title, onClose, flash }) {
-  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
@@ -376,21 +376,26 @@ function ShareModal({ recipeIds, title, onClose, flash }) {
   const share = async () => {
     setBusy(true); setError('')
     try {
-      const res = await api.shareRecipe(recipeIds, phone)
+      const res = await api.shareRecipe(recipeIds, email.trim())
       setResult(res)
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 
+  const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())
+
   return (
     <Modal title={`Share ${title}`} onClose={onClose}>
-      <p className="muted" style={{ marginTop: 0 }}>Enter a contact's cell number. If they're on ForkCast, {many ? 'the recipes copy' : 'the recipe copies'} into their cookbook and they get a text.</p>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Enter the Google account of another ForkCast household — {many ? 'the recipes copy' : 'the recipe copies'} straight
+        into their cookbook. (Anyone already on your family profile can see these already.)
+      </p>
       {error && <Banner kind="error">{error}</Banner>}
       {result ? (
         <Banner kind="info">{result.note}</Banner>
       ) : (
         <div style={{ display: 'flex', gap: 8 }}>
-          <input className="input" placeholder="+1 555 123 4567" value={phone} inputMode="tel" onChange={(e) => setPhone(e.target.value)} />
-          <button className="btn btn-primary" onClick={share} disabled={busy || phone.length < 10}>
+          <input className="input" placeholder="them@gmail.com" value={email} inputMode="email" onChange={(e) => setEmail(e.target.value)} />
+          <button className="btn btn-primary" onClick={share} disabled={busy || !valid}>
             {busy ? <Spinner /> : 'Share'}
           </button>
         </div>

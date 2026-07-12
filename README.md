@@ -55,7 +55,7 @@ See `.env.example` for the full list. Minimum to log in and generate recipes:
 - `ANTHROPIC_API_KEY` – from the Anthropic Console.
 - `ADMIN_EMAIL` – defaults to `jhendricks0314@gmail.com`; only this account can open `/logs`.
 
-Optional: `TWILIO_*` (SMS on recipe share), `GOOGLE_PLACES_API_KEY` (real nearby‑store search).
+Optional: `GOOGLE_PLACES_API_KEY` (real nearby‑store search).
 
 ---
 
@@ -70,114 +70,71 @@ To install the app: open the site and use the browser's **Install** / **Add to H
 
 ---
 
-## Live price scraping
+## Pricing: your prices first, estimates for the rest
 
-The **Shopping List** screen has an **"Update live prices"** button (with an
-optional ZIP for location‑accurate pricing). It calls `/api/scrape-prices`,
-which runs a pluggable scraper engine (`netlify/functions/_shared/scrapers.js`)
-and merges the results with the receipt database. All prices are cached in
-Netlify Blobs for 24h so it stays fast and polite.
+ForkCast does **not** scrape retailer sites (they block it and the markup breaks
+constantly). Instead, two sources:
 
-Three sources, most reliable first:
+1. **Your price database** (the **Prices** tab) — every price you record wins,
+   because it's what you actually paid. Three ways in:
+   - **Enter a price** by hand for a specific store
+   - **Scan a barcode** (ZXing + Open Food Facts names the product, you add the price)
+   - **Scan a receipt** (Claude reads it, keeps food only, you review before saving)
 
-1. **Kroger API (recommended).** Set `KROGER_CLIENT_ID` / `KROGER_CLIENT_SECRET`
-   from <https://developer.kroger.com/> (free; `product.compact` scope). This is
-   an official API — reliable and location‑aware — and covers every Kroger banner
-   (Kroger, Fred Meyer, Ralphs, King Soopers, Harris Teeter, Fry's, Smith's, QFC,
-   Dillons, …). Works out of the box, no browser needed.
+2. **AI estimates** — anything you haven't priced yet gets a typical price for
+   **your ZIP code**, estimated by Claude and clearly labeled with a `~` in the UI.
+   Estimates are cached per item+ZIP for a month.
 
-2. **Configurable store adapters.** Add stores via `SCRAPER_CONFIG` (a JSON array)
-   without touching code. Each entry has an `id`, `label`, and `searchUrl`
-   (`{term}` is substituted), plus an **`extract`** strategy:
+Set your ZIP during onboarding or in **Profile** — it persists until you change it,
+and the ZIP box on a shopping list updates it too. Tap **Update prices** on a list
+to fill everything in.
 
-   - `"css"` — CSS selectors `{ item, name, price }` (simple, server‑rendered sites)
-   - `"jsonld"` — reads `<script type="application/ld+json">` Product data
-   - `"nextdata"` — reads a Next.js `<script id="__NEXT_DATA__">` JSON blob
-   - `"auto"` — tries `__NEXT_DATA__`, then JSON‑LD (default when no selectors)
 
-   The JSON strategies use a resilient deep‑scan (they find product objects with a
-   name + price even if the exact path shifts), which is far sturdier than CSS
-   selectors on modern storefronts. Per store you can also set `"render": true`
-   (JS‑heavy) or `"unblock": true` (bot‑protected); both need the browser hook (3).
+## Importing prices from a credit card statement
 
-   ```json
-   [
-     { "id": "harps", "label": "Harps",
-       "searchUrl": "https://www.harpsfood.com/search?q={term}",
-       "extract": "css",
-       "selectors": { "item": ".product-cell", "name": ".cell-title", "price": ".cell-price" } }
-   ]
-   ```
+`scripts/import-statement.mjs` turns a card statement into a receipt worklist.
 
-3. **Headless render hook (for JS‑heavy sites).** Walmart, Target, Sam's Club and
-   similar render prices with JavaScript and block plain HTTP requests. Route
-   those through a headless browser and set `"render": true` on the adapter.
+```bash
+node scripts/import-statement.mjs statement.csv --zip 72701
+node scripts/import-statement.mjs statement.xlsx --all --since 2025-01-01
+npm i -D xlsx     # only needed for .xlsx (CSV works with no deps)
+```
 
-   The simplest option is **Browserless** (cloud or self‑hosted). ForkCast POSTs
-   `{ url }` to its `/content` endpoint and reads back the rendered HTML:
+It auto-detects your bank's columns, finds the store transactions, pulls out
+**date, total, and card last-4**, skips refunds and sub-$5 noise, and writes
+`receipt-worklist.csv`.
 
-   ```bash
-   # self-hosted, one container:
-   docker run -d -p 3000:3000 -e "TOKEN=your-secret" ghcr.io/browserless/chromium
-   ```
-   ```
-   SCRAPER_BROWSER_URL=http://localhost:3000        # "/content" is appended automatically
-   SCRAPER_BROWSER_TOKEN=your-secret
-   ```
+**Why there's a manual step in the middle.** A statement only ever has the
+*total* — never the line items — so the receipt itself is required. Walmart's
+receipt lookup requires a **CAPTCHA**, deliberately: the tool hands over a full
+receipt given only (store, date, card last-4, total), so Walmart gates it against
+automated querying. That gate can't be honestly automated, and shouldn't be.
 
-   For Browserless cloud, use `https://production-sfo.browserless.io/content`
-   with your account token. Any custom service that takes `POST { url }` and
-   returns raw HTML or `{ html }` works too — just point `SCRAPER_BROWSER_URL` at
-   it. In production the URL must be reachable from Netlify (not `localhost`).
-   Without this hook, JS‑heavy sites return an empty shell. Even with it, some
-   sites need residential proxies or Browserless's `/unblock` endpoint to get
-   past bot detection.
+**The workflow that does work:**
 
-**Notes for private/personal use:** scraping is bounded by a time budget per
-request (click again to price the rest of a long list), sends a normal
-User‑Agent, and caches aggressively. Retailer terms and `robots.txt` still apply
-— this is provided for your own personal price‑tracking. Items with no live
-source fall back to receipt prices (or stay unpriced for you to fill in).
+1. **Check Purchase History first.** If your card is saved to your Walmart.com
+   account, in-store purchases are already filed under Account → Purchase History
+   with full line items and *no* captcha. Same for emailed receipts. This skips
+   the lookup tool entirely.
+2. Otherwise, work the CSV: paste the four fields into
+   <https://www.walmart.com/receipt-lookup>, clear the captcha, hit Download.
+   *(Walmart Pay gotcha: if your real card's last-4 is rejected, use the digital
+   card number from the Walmart Pay screen in the app.)*
+3. **Prices → Scan receipt → select them all at once.** Claude reads each
+   receipt, keeps food only, tags each row with its own store and date, and after
+   your review the line items land in the price database — which is exactly what
+   your shopping lists price against.
 
-### Store scraper setup: Aldi, Walmart, Dollar General
-
-`.env.example` ships a ready `SCRAPER_CONFIG` for these three (Walmart via
-`nextdata` + `unblock`, Aldi and Dollar General via `auto` + `render`). To use it,
-set up the Browserless hook (3) and uncomment that line. **Be realistic about
-these three** — they're the hardest targets:
-
-- **Walmart** puts prices in a `__NEXT_DATA__` blob behind Akamai + PerimeterX.
-  Plain rendering usually hits a challenge page, so the config uses `"unblock": true`
-  (Browserless `/unblock`). Even then, datacenter IPs are often blocked — you may
-  need Browserless's residential‑proxy option. Prices are ZIP/store‑specific.
-- **Aldi (US)** exposes very little scrapable per‑item pricing and gates it behind a
-  selected store; expect partial or no results.
-- **Dollar General** prices are tied to a specific store number, so a plain search
-  returns default/approximate pricing.
-
-Because retailer markup and URLs change, treat the shipped config as a starting
-point and verify two things per store:
-
-1. **The search URL.** Search on the store's own site and copy the URL from the
-   address bar; replace the query with `{term}`.
-2. **That prices actually come back.** Use Browserless's `/content` (or `/unblock`)
-   debugger, or ForkCast's own "Update live prices" button, on a common item like
-   "milk". If nothing returns, the page likely needs a store/location set first
-   (a cookie or URL parameter), or a residential proxy. The `nextdata`/`jsonld`
-   deep‑scan means you usually don't need exact JSON paths — but you can pin them
-   with `itemsPath` / `namePath` / `pricePath` if you want tighter results.
-
-The engine never crashes on a failed store: a blocked or empty source is simply
-skipped, and pricing falls back to your scanned receipts.
+Steps 1 and 3 are fully automated. Only the captcha is on you.
 
 ## Honest notes on the tricky requirements
 
 A few requirements touch external services or techniques that don't have a clean, reliable, terms‑compliant implementation. Here's exactly how each is handled so there are no surprises:
 
-- **Grocery price scraping.** Built in — see [Live price scraping](#live-price-scraping) below. Prices come from a scraper engine (Kroger API + configurable HTML adapters) and are **merged with the receipt database**, so you get live prices where a source is set up and real paid prices everywhere else. Realities: big‑box sites (Walmart, Target, Sam's) render prices with JavaScript and block plain requests, so they need the headless‑render hook; the Kroger API works out of the box with free personal credentials.
+- **Grocery prices.** No scraping — recorded prices from your price database win, and Claude estimates the rest for your ZIP. See "Pricing" above.
 - **Recipe "photo" generation.** Claude generates text, not images. Rather than ship broken image calls, every recipe gets a distinctive, deterministic generated icon (from its name + cuisine). `src/lib/util.js → recipeIconSVG` is the single hook to swap in a real image‑generation API later; user‑uploaded photos already take priority over the icon.
 - **Real‑time receipt scanning.** Instead of streaming OCR while you pan the camera (unreliable), you capture a frame (or upload) and Claude vision reads it. Long receipts: capture in sections and/or add rows by hand — every row is editable.
-- **SMS on share.** Copying a recipe into a matching profile works with no setup. The **text message** only sends if `TWILIO_*` is configured; otherwise sharing still works and says so.
+- **Sharing.** No phone numbers, no SMS. Family members on your profile see every recipe automatically; to share outside the household, send recipes to another ForkCast user by their Google account email.
 - **Nearby stores.** With `GOOGLE_PLACES_API_KEY` set, results come from Google Places ranked by distance. Without it, ForkCast returns a built‑in list of common chains with approximate distances so the flow is fully usable.
 
 Everything degrades gracefully: missing an optional key disables just that piece, with a clear message, never the whole app.

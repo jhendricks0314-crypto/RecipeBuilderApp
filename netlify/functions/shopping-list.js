@@ -7,15 +7,56 @@
 //   PUT  /api/shopping-list           { list } -> save edits (checkboxes, amounts, store choice)
 //   DELETE /api/shopping-list?id=..   -> delete
 //
-// Pricing: ForkCast prices each ingredient from two sources and merges them —
-//   1. the receipt-scan database (real prices people have paid), and
-//   2. live scraped/API prices (see _shared/scrapers.js), when cached.
-// Fresh live prices are pulled on demand via /api/scrape-prices; here we merge
-// in whatever the scraper has already cached so generation stays fast.
+// Pricing: recorded prices (receipts / barcode / manual) always win. Anything
+// with no recorded price gets an AI estimate for the profile's ZIP — pulled on
+// demand via /api/estimate-prices.
+//
+// Pantry: ingredients you already have are marked and pre-removed from the buy
+// list, and Claude suggests substitutions you could make from pantry contents
+// (the user decides — nothing is applied automatically).
 import { getUser, ok, bad, unauth, forbidden } from './_shared/auth.js'
 import { stores as S, readJSON, writeJSON, listAll, id } from './_shared/blobs.js'
-import { cachedAggregate } from './_shared/scrapers.js'
+import { priceFromDB, allPriceRecords, similarity } from './_shared/pricing.js'
+import { claudeJSON, hasClaude } from './_shared/claude.js'
 import { logError } from './_shared/log.js'
+
+const SUB_SYSTEM = `You help a cook avoid buying things they can already make from what's in their pantry.
+Given a shopping list and the cook's pantry contents, find items on the list that could be made from pantry ingredients instead of bought.
+A suggestion is only valid if the pantry ALREADY contains essentially everything needed. Example: the list has "pancake mix" and the pantry has flour, eggs, milk, baking powder, and sugar -> suggest making pancakes from scratch.
+Be conservative. Do not suggest a substitution if a key component is missing. Do not suggest swapping one purchase for another purchase.
+Return ONLY JSON: { "substitutions": [ { "itemId": string, "makeFrom": [string], "note": string } ] }
+- "itemId" must be one of the ids you were given.
+- "makeFrom" lists the pantry items used.
+- "note" is one short sentence telling the cook what they'd make instead (and any caveat).
+Return an empty array if nothing qualifies.`
+
+async function suggestSubstitutions(listItems, pantryItems) {
+  if (!hasClaude() || !listItems.length || !pantryItems.length) return []
+  try {
+    const data = await claudeJSON({
+      system: SUB_SYSTEM,
+      maxTokens: 1500,
+      messages: [{
+        role: 'user',
+        content:
+          `Shopping list:\n${listItems.map((i) => `- [${i.id}] ${i.name}`).join('\n')}\n\n` +
+          `Pantry:\n${pantryItems.map((p) => `- ${p.name}${p.quantity ? ` (${p.quantity})` : ''}`).join('\n')}`,
+      }],
+    })
+    const byId = new Map(listItems.map((i) => [i.id, i.name]))
+    return (data.substitutions || [])
+      .filter((s) => byId.has(s.itemId) && Array.isArray(s.makeFrom) && s.makeFrom.length)
+      .map((s) => ({
+        itemId: s.itemId,
+        itemName: byId.get(s.itemId),
+        makeFrom: s.makeFrom,
+        note: s.note || '',
+        decision: null, // 'accepted' | 'declined' — set by the user
+      }))
+  } catch {
+    return [] // a failed suggestion must never block the list
+  }
+}
 
 // Normalize an ingredient/product name for fuzzy matching.
 function norm(s) {
@@ -26,44 +67,6 @@ function norm(s) {
     .replace(/\b(fresh|large|small|medium|boneless|skinless|organic|ground|chopped|diced|sliced)\b/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-function tokens(s) {
-  return new Set(norm(s).split(' ').filter((w) => w.length > 2))
-}
-
-// Very small token-overlap score for matching ingredients to receipt items.
-function similarity(a, b) {
-  const A = tokens(a), B = tokens(b)
-  if (!A.size || !B.size) return 0
-  let inter = 0
-  for (const t of A) if (B.has(t)) inter++
-  return inter / Math.min(A.size, B.size)
-}
-
-async function priceItem(name, receiptItems, preferredStores) {
-  const matches = receiptItems
-    .map((ri) => ({ ri, score: similarity(name, ri.name) }))
-    .filter((m) => m.score >= 0.5)
-  if (!matches.length) return { prices: [], best: null }
-
-  // Latest price per store.
-  const byStore = {}
-  for (const { ri } of matches) {
-    const prev = byStore[ri.store]
-    if (!prev || (ri.date || '') > (prev.date || '')) {
-      byStore[ri.store] = { store: ri.store, price: ri.unitPrice ?? ri.price, date: ri.date }
-    }
-  }
-  let prices = Object.values(byStore).sort((a, b) => a.price - b.price)
-
-  // Prefer the user's preferred stores when prices are close (within 15%).
-  let best = prices[0]
-  if (preferredStores?.length) {
-    const pref = prices.find((p) => preferredStores.includes(p.store))
-    if (pref && pref.price <= best.price * 1.15) best = pref
-  }
-  return { prices, best }
 }
 
 export default async (req) => {
@@ -82,7 +85,12 @@ export default async (req) => {
 
       const profile = await readJSON(S.profiles(), user.profileId)
       const preferred = chosenStores?.length ? chosenStores : profile?.preferredStores || []
-      const receiptItems = await listAll(S.receiptItems())
+      const priceRecords = await allPriceRecords()
+
+      // What's already in the pantry?
+      const pantryDoc = await readJSON(S.pantry(), user.profileId)
+      const pantryItems = pantryDoc?.items || []
+      const inPantry = (name) => pantryItems.find((p) => similarity(p.name, name) >= 0.6) || null
 
       // Aggregate ingredients across recipes (merge duplicates by normalized name).
       const agg = new Map()
@@ -92,51 +100,47 @@ export default async (req) => {
         if (!r || r.profileId !== user.profileId) continue
         recipeNames.push(r.name)
         for (const ing of r.ingredients || []) {
-          if (ing.have) continue // already in the pantry — no need to buy
           const key = norm(ing.item)
           if (!key) continue
-          if (!agg.has(key)) agg.set(key, { name: ing.item, quantities: [], fromRecipes: [] })
+          if (!agg.has(key)) agg.set(key, { name: ing.item, quantities: [], fromRecipes: [], have: !!ing.have })
           const a = agg.get(key)
           if (ing.quantity) a.quantities.push(ing.quantity)
           a.fromRecipes.push(r.name)
+          if (ing.have) a.have = true
         }
       }
 
       const items = []
       for (const a of agg.values()) {
-        const { prices, best } = await priceItem(a.name, receiptItems, preferred)
+        // Skip only when the pantry truly has it (or the recipe flagged it).
+        const pantryHit = inPantry(a.name)
+        const owned = a.have || !!pantryHit
 
-        // Merge any live prices the scraper already cached for this item.
-        const live = await cachedAggregate(a.name)
-        const map = new Map()
-        for (const p of prices) map.set(p.store, p)
-        for (const p of live) {
-          const prev = map.get(p.store)
-          if (!prev || (p.date || '') >= (prev.date || '')) map.set(p.store, p)
-        }
-        const merged = [...map.values()].sort((x, y) => x.price - y.price)
-
-        // Best across both sources, still preferring the user's stores when close.
-        let chosen = merged[0] || null
-        if (preferred?.length) {
-          const pref = merged.find((p) => preferred.some((s) => p.store.toLowerCase().includes(s.toLowerCase())))
-          if (pref && chosen && pref.price <= chosen.price * 1.15) chosen = pref
-        }
-
+        const { prices, best } = priceFromDB(a.name, priceRecords, preferred)
         items.push({
           id: id('item_'),
           name: a.name,
           quantity: a.quantities.join(' + ') || '',
           fromRecipes: [...new Set(a.fromRecipes)],
           checked: false,
-          removed: false,
-          chosenStore: chosen?.store || null,
-          bestPrice: chosen?.price ?? null,
-          priceByStore: merged, // [{store, price, date, source}]
-          hasReceiptData: merged.length > 0,
+          removed: owned,                       // already have it -> off the buy list
+          inPantry: owned,
+          pantryNote: pantryHit ? `You have ${pantryHit.name} in your pantry` : (owned ? 'Already on hand' : null),
+          chosenStore: best?.store || null,
+          bestPrice: best?.price ?? null,
+          priceByStore: prices,                 // recorded prices only; estimates fill in later
+          priceSource: best ? 'recorded' : null,
+          estimateUnit: null,
         })
       }
       items.sort((a, b) => a.name.localeCompare(b.name))
+
+      // Suggest pantry-based substitutions (e.g. pancake mix -> flour/eggs/milk
+      // you already have). The user decides; nothing is applied automatically.
+      const substitutions = await suggestSubstitutions(
+        items.filter((i) => !i.inPantry).map((i) => ({ id: i.id, name: i.name })),
+        pantryItems
+      )
 
       const list = {
         id: id('list_'),
@@ -145,7 +149,9 @@ export default async (req) => {
         recipeIds: ids,
         recipeNames,
         stores: preferred,
+        zip: profile?.zip || '',
         items,
+        substitutions,      // [{ itemId, itemName, makeFrom:[], note }] — pending user's call
         createdAt: new Date().toISOString(),
       }
       await writeJSON(S.shoppingLists(), list.id, list)

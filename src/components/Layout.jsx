@@ -8,7 +8,7 @@ const NAV = [
   { to: '/shopping', label: 'Build', Icon: IconCart },
   { to: '/list', label: 'Shopping', Icon: IconList },
   { to: '/recipes', label: 'Recipes', Icon: IconBook },
-  { to: '/scan', label: 'Scan', Icon: IconScan },
+  { to: '/prices', label: 'Prices', Icon: IconScan },
 ]
 
 export default function Layout() {

@@ -1,5 +1,5 @@
 // Profile management.
-//   POST /api/profile            { displayName, phone }  -> create (caller = owner)
+//   POST /api/profile            { displayName, zip? }   -> create the family (caller = owner)
 //   POST /api/profile/members    { email }               -> owner links a Gmail account
 //   DELETE /api/profile/members  { email }               -> owner unlinks a member
 //   DELETE /api/profile                                  -> owner deletes the profile
@@ -14,7 +14,7 @@ import { stores, readJSON, writeJSON, listAll, id } from './_shared/blobs.js'
 import { logError, logEvent } from './_shared/log.js'
 
 const isGmail = (e) => /^[^@\s]+@(gmail\.com|googlemail\.com)$/i.test(e || '')
-const normPhone = (p) => (p || '').replace(/[^\d+]/g, '')
+
 
 export default async (req) => {
   const session = getSession(req)
@@ -28,16 +28,14 @@ export default async (req) => {
     if (req.method === 'POST' && seg === 'profile') {
       if (user.profileId) return bad('You already belong to a profile.')
       const body = await req.json()
-      const phone = normPhone(body.phone)
-      if (!body.displayName?.trim()) return bad('A profile name is required.')
-      if (phone.length < 10) return bad('A valid cell number is required.')
+      if (!body.displayName?.trim()) return bad('A family name is required.')
 
       const profileId = id('prof_')
       const profile = {
         id: profileId,
         ownerEmail: user.email,
         displayName: body.displayName.trim(),
-        phone,
+        zip: (body.zip || '').trim(), // used for price estimates; persists until changed
         members: [{ email: user.email, role: 'owner', addedAt: new Date().toISOString() }],
         preferredStores: [],
         createdAt: new Date().toISOString(),
@@ -96,7 +94,7 @@ export default async (req) => {
     if (req.method === 'PUT' && seg === 'profile') {
       const body = await req.json()
       if (body.displayName) profile.displayName = body.displayName.trim()
-      if (body.phone) profile.phone = normPhone(body.phone)
+      if (body.zip !== undefined) profile.zip = String(body.zip || '').trim()
       if (Array.isArray(body.preferredStores)) profile.preferredStores = body.preferredStores
       await writeJSON(stores.profiles(), profile.id, profile)
       return ok({ profile })

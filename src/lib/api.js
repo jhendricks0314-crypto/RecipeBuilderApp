@@ -33,6 +33,9 @@ export const api = {
   removeMember: (email) => request('profile/members', { method: 'DELETE', body: { email } }),
 
   generateRecipes: (body) => request('generate-recipes', { method: 'POST', body }),
+  // Revise ONE recipe by continuing its own conversation thread.
+  reviseRecipe: (recipe, command, budget) =>
+    request('generate-recipes', { method: 'POST', body: { revise: true, recipe, command, budget } }),
   validateCommand: (command) => request('validate-command', { method: 'POST', body: { command } }),
 
   listRecipes: () => request('recipes'),
@@ -40,7 +43,7 @@ export const api = {
   saveRecipes: (recipes) => request('recipes', { method: 'POST', body: { recipes } }),
   updateRecipe: (recipe) => request('recipes', { method: 'PUT', body: { recipe } }),
   deleteRecipe: (id) => request('recipes', { method: 'DELETE', params: { id } }),
-  shareRecipe: (recipeIds, phone) => request('share-recipe', { method: 'POST', body: { recipeIds, phone } }),
+  shareRecipe: (recipeIds, email) => request('share-recipe', { method: 'POST', body: { recipeIds, email } }),
 
   stores: (params) => request('stores', { params }),
   generateList: (recipeIds, stores) =>
@@ -50,8 +53,12 @@ export const api = {
   updateShoppingList: (list) => request('shopping-list', { method: 'PUT', body: { list } }),
   deleteShoppingList: (id) => request('shopping-list', { method: 'DELETE', params: { id } }),
 
-  scrapePrices: (listId, zip, force) => request('scrape-prices', { method: 'POST', body: { listId, zip, force } }),
-  scraperStatus: () => request('scrape-prices/status'),
+  estimatePrices: (listId, zip, force) => request('estimate-prices', { method: 'POST', body: { listId, zip, force } }),
+
+  // Price database (recorded prices: manual, barcode, receipt)
+  listPrices: (q) => request('prices', { params: q ? { q } : undefined }),
+  addPrice: (body) => request('prices', { method: 'POST', body }),
+  deletePrice: (id) => request('prices', { method: 'DELETE', params: { id } }),
 
   parseReceipt: (body) => request('receipts/parse', { method: 'POST', body }),
   commitReceipt: (body) => request('receipts', { method: 'POST', body }),

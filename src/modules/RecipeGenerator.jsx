@@ -59,28 +59,29 @@ export default function RecipeGenerator() {
     }
   }
 
+  // Apply a correction to ONE recipe. This continues that recipe's own
+  // conversation (original request + every correction so far), so "less spicy"
+  // edits the dish you already have instead of generating something new.
   const regenerate = async (idx) => {
     const r = results[idx]
     const command = r._command?.trim()
-    if (!command) { setError('Type a command describing the change you want.'); return }
+    if (!command) { setError('Tell me what to change about this recipe.'); return }
     setError('')
     setRegenIdx(idx)
     try {
-      // Guard: command must relate to cooking.
       const check = await api.validateCommand(command)
       if (!check.related) {
-        setError(`That command isn't about the recipe: ${check.reason || 'try something food-related.'}`)
+        setError(`That isn't about the recipe: ${check.reason || 'try something food-related.'}`)
         setRegenIdx(null)
         return
       }
-      const { recipes } = await api.generateRecipes({
-        count: 1,
-        budget: Number(budget),
-        meals: [{ cuisine: r.cuisine, tool: r.tool, people: r.servings, audience: r.audience, command }],
-        ...(pantry ? { pantryItems: pantry, onlyPantry } : {}),
-      })
-      const fresh = recipes[0]
-      setResults((prev) => prev.map((x, i) => (i === idx ? { ...fresh, _command: '' } : x)))
+      const { recipe } = await api.reviseRecipe(strip(r), command, Number(budget))
+      setResults((prev) => prev.map((x, i) => (
+        i === idx
+          ? { ...recipe, _command: '', _history: [...(x._history || []), command] }
+          : x
+      )))
+      // A revised recipe is no longer the version that was saved.
       setSavedIds((s) => { const n = { ...s }; delete n[idx]; return n })
     } catch (e) {
       setError(e.message)
@@ -270,14 +271,21 @@ export default function RecipeGenerator() {
                 </details>
 
                 <hr className="perf" />
-                <label className="label">Tweak this recipe</label>
+                <label className="label">Refine this recipe</label>
+                {r._history?.length > 0 && (
+                  <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>
+                    {r._history.map((h, k) => <div key={k}>↳ {h}</div>)}
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="input" placeholder='e.g. "make it spicier" or "swap in tofu"'
-                    value={r._command || ''} onChange={(e) => setResults((prev) => prev.map((x, idx) => (idx === i ? { ...x, _command: e.target.value } : x)))} />
+                  <input className="input" placeholder='e.g. "less spicy" or "swap in tofu"'
+                    value={r._command || ''} onChange={(e) => setResults((prev) => prev.map((x, idx) => (idx === i ? { ...x, _command: e.target.value } : x)))}
+                    onKeyDown={(e) => e.key === 'Enter' && regenerate(i)} />
                   <button className="btn btn-ghost" onClick={() => regenerate(i)} disabled={regenIdx === i}>
-                    {regenIdx === i ? <Spinner /> : 'Regenerate'}
+                    {regenIdx === i ? <Spinner /> : 'Revise'}
                   </button>
                 </div>
+                <div className="hint">Corrections build on this recipe — it keeps the original dish and your earlier changes.</div>
               </div>
             ))}
           </div>
@@ -301,6 +309,6 @@ export default function RecipeGenerator() {
 
 // Remove UI-only fields before saving.
 function strip(r) {
-  const { _command, ...rest } = r
+  const { _command, _history, ...rest } = r
   return rest
 }

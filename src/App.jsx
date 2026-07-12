@@ -10,7 +10,7 @@ import RecipeGenerator from './modules/RecipeGenerator.jsx'
 import GenerateShoppingList from './modules/GenerateShoppingList.jsx'
 import ShoppingList from './modules/ShoppingList.jsx'
 import Recipes from './modules/Recipes.jsx'
-import ReceiptScanner from './modules/ReceiptScanner.jsx'
+import Prices from './modules/Prices.jsx'
 import Pantry from './modules/Pantry.jsx'
 import Profile from './modules/Profile.jsx'
 import Logs from './modules/Logs.jsx'
@@ -44,7 +44,7 @@ export default function App() {
             <Route path="/shopping" element={<GenerateShoppingList />} />
             <Route path="/list" element={<ShoppingList />} />
             <Route path="/recipes" element={<Recipes />} />
-            <Route path="/scan" element={<ReceiptScanner />} />
+            <Route path="/prices" element={<Prices />} />
             <Route path="/pantry" element={<Pantry />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<Navigate to="/generate" replace />} />
