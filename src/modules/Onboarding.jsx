@@ -3,7 +3,7 @@ import { api } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { usePersistentState, clearDraftsFor } from '../lib/persist.jsx'
 import { Banner, Spinner } from '../components/ui.jsx'
-import { IconFork } from '../components/icons.jsx'
+import { IconRain } from '../components/icons.jsx'
 
 export default function Onboarding() {
   const { user, refresh, logout } = useAuth()
@@ -30,18 +30,18 @@ export default function Onboarding() {
     <div className="login-wrap">
       <div className="login-card" style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--saffron)', marginBottom: 8 }}>
-          <IconFork />
+          <IconRain />
         </div>
         <h1 style={{ fontSize: 32 }}>Set up your kitchen</h1>
         <p style={{ margin: '8px 0 22px' }}>
-          You're signed in as {user?.email}. Create your family kitchen — you'll be
-          the owner and can invite the rest of the family later.
+          You're signed in as {user?.email}. Set up your kitchen — this account
+          owns it, and everything you save lives here.
         </p>
 
         <div className="card" style={{ textAlign: 'left', color: 'var(--ink)' }}>
           {error && <Banner kind="error">{error}</Banner>}
           <div className="field">
-            <label className="label">Family name</label>
+            <label className="label">Kitchen name</label>
             <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="The Hendricks Kitchen" />
           </div>
           <div className="field">
@@ -50,7 +50,7 @@ export default function Onboarding() {
             <div className="hint">Used to estimate grocery prices for your area. You can change it any time.</div>
           </div>
           <button className="btn btn-primary btn-block" onClick={submit} disabled={busy || !displayName.trim()}>
-            {busy ? <Spinner /> : 'Create family kitchen'}
+            {busy ? <Spinner /> : 'Create my kitchen'}
           </button>
         </div>
 

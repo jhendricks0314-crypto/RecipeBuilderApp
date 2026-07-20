@@ -1,10 +1,7 @@
 // POST /api/share-recipe  { recipeIds: [], email }
-// Shares recipes with another ForkCast household by their Google account email.
+// Shares recipes with another RAIning Recipes user by their Google account email.
 // No phone numbers, no SMS — the recipes are copied straight into their cookbook.
-//
-// (Everyone already on YOUR family profile sees all of its recipes automatically;
-//  this is for sharing outside your household. To bring someone INTO your family,
-//  use Profile -> add member.)
+// Each profile is a single Google account, so this is how recipes move between people.
 import { getUser, ok, bad, unauth } from './_shared/auth.js'
 import { stores, readJSON, writeJSON, id } from './_shared/blobs.js'
 import { logError, logEvent } from './_shared/log.js'
@@ -26,14 +23,11 @@ export default async (req) => {
     if (!idx) {
       return ok({
         shared: false,
-        note: `${addr} isn't on ForkCast yet. Ask them to sign in once, then share again.`,
+        note: `${addr} isn't on RAIning Recipes yet. Ask them to sign in once, then share again.`,
       })
     }
     if (idx.profileId === user.profileId) {
-      return ok({
-        shared: false,
-        note: `${addr} is already on your family profile — they can see these recipes already.`,
-      })
+      return ok({ shared: false, note: "That's your own account." })
     }
 
     // Copy the recipes into their cookbook.

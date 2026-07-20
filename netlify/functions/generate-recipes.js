@@ -1,8 +1,13 @@
 // POST /api/generate-recipes
 //
 // Two modes:
-//  1. GENERATE  { count, whatToCook, prefs, pantryItems? }
-//  2. REVISE    { revise: true, recipe, command, prefs?, pantryItems? }
+//  1. SUGGEST   { suggest: true, whatToCook, prefs, pantryItems? }
+//     -> up to 10 ideas as {name, summary} only. Cheap and fast: the cook picks
+//        one before we spend tokens writing a full recipe. If the request is
+//        already specific ("chicken parmesan"), it returns just 1-2 — there's no
+//        point padding a precise ask with variations nobody wanted.
+//  2. GENERATE  { whatToCook, prefs, pantryItems?, pick? }
+//  3. REVISE    { revise: true, recipe, command, prefs?, pantryItems? }
 //     -> revises THAT recipe by continuing its own thread, so a correction like
 //        "less spicy" edits the original dish instead of inventing a new one.
 //
@@ -25,12 +30,19 @@ const RECIPE_SHAPE = `{
   "estimatedTimeMinutes": number,
   "highlights": string,           // "" normally. When trends are on: one line naming the modern ingredient/technique used and why it works.
   "ingredients": [ { "item": string, "quantity": string, "have": boolean } ],
-  "steps": [ { "text": string, "note": string } ]  // note = optional efficiency tip, else ""
+  "steps": [ { "text": string, "note": string, "uses": [ { "item": string, "amount": string } ] } ]
 }
+For every step, "uses" lists the ingredients consumed IN THAT STEP so the cook can measure as they go:
+- "item" MUST match an ingredient name from the ingredients list exactly.
+- "amount" is how much of it that step uses ("1 tsp", "half", "the rest").
+- CRITICAL: when an ingredient is used across several steps, split it so the per-step amounts ADD UP to the total in the ingredients list. If the list says 1 1/2 tsp salt and two steps use it, they might be "1 tsp" and "1/2 tsp" — never "1 1/2 tsp" twice.
+- Only list what is actually added or used in that step. A step like "bake for 30 minutes" uses nothing, so "uses" is [].
+- Ingredients used in their entirety in one step get the full amount.
+
 Set "have" to true ONLY for items the cook already has (from the on-hand list, or an obvious basic staple like salt/pepper/water/cooking oil). Everything else is false — those are the things they'll need to buy.
 Organize steps for real-kitchen efficiency: when a step involves waiting (baking, simmering, resting), the "note" on that step should say what to prep or start in parallel while they wait.`
 
-const BASE_RULES = `You are ForkCast's recipe chef. You write practical, well-tested home recipes.
+const BASE_RULES = `You are RAIning Recipes's recipe chef. You write practical, well-tested home recipes.
 Return ONLY JSON — no prose, no markdown fences.`
 
 const REVISE_SYSTEM = `${BASE_RULES}
@@ -44,7 +56,7 @@ Return a SINGLE recipe object with exactly these fields:
 ${RECIPE_SHAPE}`
 
 const GEN_SYSTEM = `${BASE_RULES}
-Return an array of recipe objects, each with exactly these fields:
+Return an array containing exactly ONE recipe object with these fields:
 ${RECIPE_SHAPE}`
 
 // Turn the household's saved options into hard constraints for the model.
@@ -110,7 +122,19 @@ function shape(r, user, existing) {
       ? r.ingredients.map((i) => ({ item: i.item, quantity: i.quantity || '', have: !!i.have }))
       : [],
     steps: Array.isArray(r.steps)
-      ? r.steps.map((s, idx) => ({ n: idx + 1, text: s.text || String(s), note: s.note || '', comments: [] }))
+      ? r.steps.map((s, idx) => ({
+          n: idx + 1,
+          text: s.text || String(s),
+          note: s.note || '',
+          // What this step consumes, so the cook can measure per step instead of
+          // re-reading the whole ingredient list.
+          uses: Array.isArray(s.uses)
+            ? s.uses
+                .filter((u) => u && (u.item || u.name))
+                .map((u) => ({ item: String(u.item || u.name).trim(), amount: String(u.amount || '').trim() }))
+            : [],
+          comments: [],
+        }))
       : [],
     photos: existing?.photos || [],
     rating: existing?.rating || 0,
@@ -127,7 +151,7 @@ function stripForThread(r) {
     servings: r.servings, estimatedTimeMinutes: r.estimatedTimeMinutes,
     highlights: r.highlights || '',
     ingredients: r.ingredients,
-    steps: (r.steps || []).map((s) => ({ text: s.text, note: s.note || '' })),
+    steps: (r.steps || []).map((s) => ({ text: s.text, note: s.note || '', uses: s.uses || [] })),
   }
 }
 
@@ -166,18 +190,46 @@ export default async (req) => {
       return ok({ recipe })
     }
 
-    // ---------- Generate new recipes ----------
-    const count = Math.min(Math.max(parseInt(body.count) || 1, 1), 6)
+    // ---------- Suggest ideas (names + summaries only) ----------
+    if (body.suggest) {
+      const what = (body.whatToCook || '').trim()
+      if (!what) return bad('Tell me what you want to cook.')
+
+      const prompt = `The cook wants: "${what}".
+Propose recipe ideas that fit.` + constraints(prefs, body.pantryItems)
+
+      const raw = await claudeJSON({
+        system: SUGGEST_SYSTEM,
+        maxTokens: 2000,
+        messages: [{ role: 'user', content: prompt }],
+      })
+      const suggestions = (Array.isArray(raw) ? raw : [raw])
+        .filter((x) => x && x.name)
+        .slice(0, 10)
+        .map((x) => ({
+          name: String(x.name),
+          summary: String(x.summary || ''),
+          cuisine: x.cuisine || '',
+          tool: x.tool || '',
+          estimatedTimeMinutes: Number(x.estimatedTimeMinutes) || null,
+        }))
+      return ok({ suggestions })
+    }
+
+    // ---------- Generate a full recipe ----------
     const what = (body.whatToCook || '').trim()
     if (!what) return bad('Tell me what you want to cook.')
 
-    const userPrompt =
-      `Generate ${count} recipe${count > 1 ? 's' : ''}. The cook wants: "${what}".` +
-      constraints(prefs, body.pantryItems)
+    // `pick` is the suggestion the cook chose — write THAT dish specifically.
+    const pick = body.pick
+    const userPrompt = pick?.name
+      ? `Write the full recipe for: "${pick.name}".${pick.summary ? ` It was described as: "${pick.summary}".` : ''}
+The cook originally asked for: "${what}". Stay true to the dish named above.` + constraints(prefs, body.pantryItems)
+      : `Generate 1 recipe. The cook wants: "${what}".` + constraints(prefs, body.pantryItems)
 
     const recipes = await claudeJSON({
       system: GEN_SYSTEM,
-      maxTokens: 6000,
+      maxTokens: 4000,
       messages: [{ role: 'user', content: userPrompt }],
     })
 
@@ -190,7 +242,7 @@ export default async (req) => {
       return rec
     })
 
-    return ok({ recipes: shaped })
+    return ok({ recipes: shaped, recipe: shaped[0] })
   } catch (error) {
     await logError({ req, user, action: 'generate-recipes', error })
     return bad('Recipe generation failed. Please try again.', 500)

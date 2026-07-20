@@ -29,10 +29,18 @@ export const api = {
   createProfile: (body) => request('profile', { method: 'POST', body }),
   updateProfile: (body) => request('profile', { method: 'PUT', body }),
   deleteProfile: () => request('profile', { method: 'DELETE' }),
-  addMember: (email) => request('profile/members', { method: 'POST', body: { email } }),
-  removeMember: (email) => request('profile/members', { method: 'DELETE', body: { email } }),
 
   generateRecipes: (body) => request('generate-recipes', { method: 'POST', body }),
+  // Cheap idea list (names + summaries) before committing tokens to a full recipe.
+  suggestRecipes: (whatToCook, prefs, pantryItems) =>
+    request('generate-recipes', { method: 'POST', body: { suggest: true, whatToCook, prefs, pantryItems } }),
+
+  recipeCost: (recipe, zip) => request('recipe-cost', { method: 'POST', body: { recipe, zip } }),
+
+  substituteIngredient: (recipe, ingredient, pantryItems) =>
+    request('ingredient-help', { method: 'POST', body: { mode: 'substitute', recipe, ingredient, pantryItems } }),
+  askIngredient: (recipe, ingredient, question) =>
+    request('ingredient-help', { method: 'POST', body: { mode: 'ask', recipe, ingredient, question } }),
   // Revise ONE recipe by continuing its own conversation thread.
   reviseRecipe: (recipe, command) =>
     request('generate-recipes', { method: 'POST', body: { revise: true, recipe, command } }),
@@ -53,6 +61,8 @@ export const api = {
   updateShoppingList: (list) => request('shopping-list', { method: 'PUT', body: { list } }),
   deleteShoppingList: (id) => request('shopping-list', { method: 'DELETE', params: { id } }),
 
+  shareList: (listId, email) => request('share-list', { method: 'POST', body: { listId, email } }),
+
   estimatePrices: (listId, zip, force) => request('estimate-prices', { method: 'POST', body: { listId, zip, force } }),
 
   // Price database (recorded prices: manual, barcode, receipt)
@@ -69,5 +79,9 @@ export const api = {
   lookupBarcode: (upc) => request('barcode-lookup', { params: { upc } }),
   identifyPantry: (body) => request('identify-pantry', { method: 'POST', body }),
 
+  addCollaborator: (email) => request('profile/collaborator', { method: 'POST', body: { email } }),
+  removeCollaborator: () => request('profile/collaborator', { method: 'DELETE' }),
+
   logs: (params) => request('logs', { params }),
+  adminUsers: () => request('admin-users'),
 }

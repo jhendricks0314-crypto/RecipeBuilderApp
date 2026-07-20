@@ -1,5 +1,5 @@
 /* =========================================================================
-   ForkCast design system
+   RAIning Recipes design system
    Direction: a modern "recipe card + receipt" feel. Deep basil ink, warm paper
    cards, saffron as the one bold accent, prices/timestamps set in mono so they
    read like a receipt. Bold lives in the saffron accent + Fraunces display;
@@ -153,6 +153,15 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 /* perforation divider — the receipt signature */
 .perf { height: 1px; border: none; border-top: 2px dotted var(--line); margin: 16px 0; }
+
+/* per-step ingredient amounts (mise en place) */
+.step-uses { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.step-use {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  background: rgba(224, 168, 46, 0.12); border: 1px solid rgba(224, 168, 46, 0.3);
+  border-radius: 6px; padding: 2px 8px; font-size: 12px; color: var(--ink-soft);
+}
+.step-use-amt { font-weight: 600; color: var(--saffron-deep); font-size: 11.5px; }
 
 /* readable recipe steps (default, non-editing view) */
 .recipe-steps { margin: 12px 0 0; padding: 0; list-style: none; counter-reset: step; }

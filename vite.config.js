@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// ForkCast build config.
+// RAIning Recipes build config.
 // The PWA plugin gives us: installability (manifest), offline shell, and
 // automatic updates. `registerType: 'autoUpdate'` means a new service worker
 // is fetched in the background and the app updates itself on next load; the
@@ -14,8 +14,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
-        name: 'ForkCast — plan, cook, spend smart',
-        short_name: 'ForkCast',
+        name: 'RAIning Recipes — plan, cook, spend smart',
+        short_name: 'RAIning Recipes',
         description:
           'Generate recipes with AI, build budget shopping lists, and turn scanned receipts into real prices.',
         theme_color: '#16231c',

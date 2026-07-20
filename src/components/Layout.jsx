@@ -1,12 +1,11 @@
 import { NavLink, Outlet, Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
-import { IconGenerate, IconCart, IconList, IconBook, IconScan, IconPantry, IconFork } from './icons.jsx'
+import { IconGenerate, IconCart, IconBook, IconScan, IconPantry, IconRain } from './icons.jsx'
 
 const NAV = [
   { to: '/generate', label: 'Generate', Icon: IconGenerate },
   { to: '/pantry', label: 'Pantry', Icon: IconPantry },
-  { to: '/shopping', label: 'Build', Icon: IconCart },
-  { to: '/list', label: 'Shopping', Icon: IconList },
+  { to: '/list', label: 'Shopping', Icon: IconCart },
   { to: '/recipes', label: 'Recipes', Icon: IconBook },
   { to: '/prices', label: 'Prices', Icon: IconScan },
 ]
@@ -17,8 +16,8 @@ export default function Layout() {
     <div className="app">
       <header className="topbar">
         <Link to="/generate" className="brand" style={{ textDecoration: 'none' }}>
-          <IconFork />
-          <span>Fork<span className="dot">Cast</span></span>
+          <IconRain />
+          <span><span className="dot">RAI</span>ning Recipes</span>
         </Link>
         <div className="topbar-right">
           <Link to="/profile" aria-label="Profile">

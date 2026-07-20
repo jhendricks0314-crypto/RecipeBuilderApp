@@ -1,4 +1,4 @@
-# ForkCast 🍴
+# RAIning Recipes 🍴
 
 AI recipe planning, budgeting, shopping lists, and receipt‑powered pricing — as an installable PWA that runs entirely on Netlify.
 
@@ -72,7 +72,7 @@ To install the app: open the site and use the browser's **Install** / **Add to H
 
 ## Pricing: your prices first, estimates for the rest
 
-ForkCast does **not** scrape retailer sites (they block it and the markup breaks
+RAIning Recipes does **not** scrape retailer sites (they block it and the markup breaks
 constantly). Instead, two sources:
 
 1. **Your price database** (the **Prices** tab) — every price you record wins,
@@ -134,7 +134,7 @@ A few requirements touch external services or techniques that don't have a clean
 - **Grocery prices.** No scraping — recorded prices from your price database win, and Claude estimates the rest for your ZIP. See "Pricing" above.
 - **Recipe "photo" generation.** Claude generates text, not images. Rather than ship broken image calls, every recipe gets a distinctive, deterministic generated icon (from its name + cuisine). `src/lib/util.js → recipeIconSVG` is the single hook to swap in a real image‑generation API later; user‑uploaded photos already take priority over the icon.
 - **Real‑time receipt scanning.** Instead of streaming OCR while you pan the camera (unreliable), you capture a frame (or upload) and Claude vision reads it. Long receipts: capture in sections and/or add rows by hand — every row is editable.
-- **Sharing.** No phone numbers, no SMS. Family members on your profile see every recipe automatically; to share outside the household, send recipes to another ForkCast user by their Google account email.
-- **Nearby stores.** With `GOOGLE_PLACES_API_KEY` set, results come from Google Places ranked by distance. Without it, ForkCast returns a built‑in list of common chains with approximate distances so the flow is fully usable.
+- **Sharing.** No phone numbers, no SMS. One Google account per profile. Recipes are shared to another RAIning Recipes user by their Google account email (copied into their cookbook); shopping lists are emailed with tappable checkboxes that sync back.
+- **Nearby stores.** With `GOOGLE_PLACES_API_KEY` set, results come from Google Places ranked by distance. Without it, RAIning Recipes returns a built‑in list of common chains with approximate distances so the flow is fully usable.
 
 Everything degrades gracefully: missing an optional key disables just that piece, with a clear message, never the whole app.

@@ -7,7 +7,6 @@ import UpdatePrompt from './components/UpdatePrompt.jsx'
 import Login from './modules/Login.jsx'
 import Onboarding from './modules/Onboarding.jsx'
 import RecipeGenerator from './modules/RecipeGenerator.jsx'
-import GenerateShoppingList from './modules/GenerateShoppingList.jsx'
 import ShoppingList from './modules/ShoppingList.jsx'
 import Recipes from './modules/Recipes.jsx'
 import Prices from './modules/Prices.jsx'
@@ -41,7 +40,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<Navigate to="/generate" replace />} />
             <Route path="/generate" element={<RecipeGenerator />} />
-            <Route path="/shopping" element={<GenerateShoppingList />} />
+            <Route path="/shopping" element={<Navigate to="/list" replace />} />
             <Route path="/list" element={<ShoppingList />} />
             <Route path="/recipes" element={<Recipes />} />
             <Route path="/prices" element={<Prices />} />

@@ -1,5 +1,5 @@
 import { useAuth } from '../lib/auth.jsx'
-import { IconGoogle, IconFork } from '../components/icons.jsx'
+import { IconGoogle, IconRain } from '../components/icons.jsx'
 
 export default function Login() {
   const { login } = useAuth()
@@ -7,9 +7,9 @@ export default function Login() {
     <div className="login-wrap">
       <div className="login-card">
         <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--saffron)', marginBottom: 10 }}>
-          <IconFork />
+          <IconRain />
         </div>
-        <h1>Fork<span className="dot">Cast</span></h1>
+        <h1><span className="dot">RAI</span>ning Recipes</h1>
         <p style={{ fontSize: 17, margin: '10px 0 28px' }}>
           Plan meals with AI, build smart shopping lists, and turn your receipts
           into real prices. Cook well, spend smart.

@@ -1,7 +1,7 @@
 // Formatting + a deterministic "recipe photo" generator.
 //
 // True photorealistic image generation needs a separate image model/API, which
-// ForkCast leaves as a pluggable hook (see README → recipe images). In its
+// RAIning Recipes leaves as a pluggable hook (see README → recipe images). In its
 // place, every recipe gets a distinctive, appetizing generated icon derived
 // from its name + cuisine, so each card is visually unique and stable.
 
@@ -93,6 +93,17 @@ export const TOOLS = ['Grill', 'Pellet Smoker', 'Oven', 'Stove Top', 'Nothing']
 
 // Cooking tools the household starts with — they can add their own.
 export const DEFAULT_TOOLS = ['Stove Top', 'Oven', 'Smoker', 'Grill']
+
+// Where food actually lives. Every pantry item belongs to exactly one.
+export const PANTRY_LOCATIONS = ['Pantry', 'Refrigerator', 'Freezer', 'Deep Freeze']
+export function locationEmoji(loc) {
+  return { 'Pantry': '🥫', 'Refrigerator': '🧊', 'Freezer': '❄️', 'Deep Freeze': '🗄️' }[loc] || '🥫'
+}
+export function normalizeLocation(v) {
+  const s = String(v || '').trim()
+  const hit = PANTRY_LOCATIONS.find((l) => l.toLowerCase() === s.toLowerCase())
+  return hit || 'Pantry'
+}
 
 // Nutrition targets (things to keep low / high).
 export const NUTRITION_GOALS = [

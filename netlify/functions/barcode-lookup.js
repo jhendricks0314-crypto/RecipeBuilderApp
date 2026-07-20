@@ -3,10 +3,11 @@
 // no API key required. Returns a name + rough category we can drop into the
 // pantry (category gets normalized when the item is saved).
 import { getUser, ok, bad, unauth } from './_shared/auth.js'
+import { stores as S, listAll } from './_shared/blobs.js'
 import { logError } from './_shared/log.js'
 
 // Open Food Facts asks callers to identify themselves in the User-Agent.
-const UA = 'ForkCast/1.0 (personal pantry app)'
+const UA = 'RAIning Recipes/1.0 (personal pantry app)'
 
 export default async (req) => {
   const user = await getUser(req)
@@ -16,6 +17,29 @@ export default async (req) => {
   if (!upc) return bad('No barcode provided.')
 
   try {
+    // Your own price history wins: if this UPC is already in the price database
+    // (usually captured from a receipt, where the UPC is printed next to the
+    // price), we already know the item AND what you paid — no lookup needed.
+    const upc = new URL(req.url).searchParams.get('upc')
+    const records = (await listAll(S.receiptItems())).filter((r) => r.barcode && r.barcode === upc)
+    if (records.length) {
+      records.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      const latest = records[0]
+      const byStore = {}
+      for (const r of records) {
+        if (!byStore[r.store] || (r.date || '') > (byStore[r.store].date || '')) {
+          byStore[r.store] = { store: r.store, price: r.unitPrice ?? r.price, date: r.date }
+        }
+      }
+      return ok({
+        found: true,
+        name: latest.name,
+        barcode: upc,
+        source: 'price-history',
+        priceHistory: Object.values(byStore).sort((a, b) => a.price - b.price),
+      })
+    }
+
     const api = `https://world.openfoodfacts.org/api/v2/product/${upc}.json?fields=product_name,brands,categories,quantity,image_front_small_url`
     const res = await fetch(api, { headers: { 'user-agent': UA, accept: 'application/json' } })
     if (!res.ok) throw new Error(`Open Food Facts ${res.status}`)

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ForkCast — credit card statement → receipt-lookup worklist
+ * RAIning Recipes — credit card statement → receipt-lookup worklist
  * ==========================================================
  * Reads a CSV or Excel export of your card statement, finds the store
  * transactions, and produces the exact values you need for each receipt lookup
@@ -21,7 +21,7 @@
  * gate is deliberate — the lookup reveals a receipt from just (store, date,
  * card last-4, total), so Walmart blocks automated querying of it. This script
  * gets you to the doorstep: for each transaction you paste 4 fields, clear one
- * CAPTCHA, and hit Download. Then run the receipts through ForkCast's Prices
+ * CAPTCHA, and hit Download. Then run the receipts through RAIning Recipes's Prices
  * tab (batch upload) and the line items land in your price database.
  *
  * FASTER PATH — CHECK THIS FIRST:
@@ -178,7 +178,7 @@ const flag = (name, def = null) => {
 
 if (!file) {
   console.log(`
-ForkCast statement importer
+RAIning Recipes statement importer
 
   node scripts/import-statement.mjs <statement.csv|.xlsx> [options]
 
@@ -303,7 +303,7 @@ console.log(`  NEXT STEPS
        ⚠ If a Walmart Pay purchase rejects your real card's last-4, use the
          digital card number from the Walmart Pay screen in the app.
 
-  3. In ForkCast: Prices → Scan receipt → upload them (you can select several
+  3. In RAIning Recipes: Prices → Scan receipt → upload them (you can select several
      at once). Claude reads each one, keeps food items only, you review, and
      the prices land in your price database.
 `)

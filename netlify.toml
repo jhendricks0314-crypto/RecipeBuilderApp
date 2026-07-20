@@ -1,4 +1,4 @@
-# ForkCast — Netlify configuration
+# RAIning Recipes — Netlify configuration
 # Local testing:  netlify dev   (serves Vite + Functions + Blobs together)
 # Deploy:         push to a repo connected to Netlify, or `netlify deploy --prod`
 

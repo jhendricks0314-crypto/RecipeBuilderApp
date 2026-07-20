@@ -3,7 +3,7 @@
 import jwt from 'jsonwebtoken'
 import { stores, readJSON } from './blobs.js'
 
-const COOKIE = 'fc_session'
+const COOKIE = 'rr_session'
 const SECRET = () => process.env.SESSION_SECRET || 'dev-insecure-secret'
 const ADMIN = () => (process.env.ADMIN_EMAIL || 'jhendricks0314@gmail.com').toLowerCase()
 
@@ -58,7 +58,7 @@ export async function getUser(req) {
     picture: session.picture || '',
     isAdmin: email === ADMIN(),
     profileId: idx?.profileId || null,
-    role: idx?.role || null, // 'owner' | 'member'
+    role: idx?.role || null, // always 'owner' — one account per profile
     profile,
   }
 }

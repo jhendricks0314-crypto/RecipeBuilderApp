@@ -1,9 +1,9 @@
 {
-  "name": "forkcast",
+  "name": "raining-recipes",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "ForkCast — AI recipe planning, budgeting, shopping lists, and receipt-powered pricing.",
+  "description": "RAIning Recipes — AI recipe planning, budgeting, shopping lists, and receipt-powered pricing.",
   "scripts": {
     "dev": "netlify dev",
     "dev:vite": "vite",

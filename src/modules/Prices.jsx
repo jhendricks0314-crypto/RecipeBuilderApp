@@ -108,6 +108,7 @@ function ManualPrice({ stores, onClose, onSaved, prefill }) {
   const [store, setStore] = usePersistentState('price.lastStore', '')
   const [price, setPrice] = useState('')
   const [quantity, setQuantity] = useState('1')
+  const [unit, setUnit] = usePersistentState('price.lastUnit', '1 lb')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -115,7 +116,7 @@ function ManualPrice({ stores, onClose, onSaved, prefill }) {
     setBusy(true); setError('')
     try {
       await api.addPrice({
-        name, store, price: Number(price), quantity: Number(quantity) || 1,
+        name, store, price: Number(price), quantity: Number(quantity) || 1, unit,
         barcode: prefill?.barcode || null,
         source: prefill ? 'barcode' : 'manual',
       })
@@ -126,6 +127,19 @@ function ManualPrice({ stores, onClose, onSaved, prefill }) {
   return (
     <Modal title={prefill ? 'Price this item' : 'Enter a price'} onClose={onClose}>
       {error && <Banner kind="error">{error}</Banner>}
+      {prefill?.priceHistory?.length > 0 && (
+        <Banner kind="info">
+          <strong>You've bought this before</strong>
+          <div style={{ marginTop: 4 }}>
+            {prefill.priceHistory.map((p) => (
+              <div key={p.store} style={{ fontSize: 13 }}>
+                {p.store} — <span className="price">{money(p.price)}</span>
+                <span className="muted"> · {p.date}</span>
+              </div>
+            ))}
+          </div>
+        </Banner>
+      )}
       <div className="field">
         <label className="label">Item</label>
         <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Whole milk, 1 gal" autoFocus={!prefill} />
@@ -135,6 +149,14 @@ function ManualPrice({ stores, onClose, onSaved, prefill }) {
         <input className="input" list="fc-stores" value={store} onChange={(e) => setStore(e.target.value)} placeholder="Aldi" />
         <datalist id="fc-stores">{stores.map((s) => <option key={s} value={s} />)}</datalist>
         <div className="hint">Your last store is remembered.</div>
+      </div>
+      <div className="field">
+        <label className="label">What does that price buy?</label>
+        <input className="input" list="fc-units" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="1 lb" />
+        <datalist id="fc-units">
+          {['1 lb', '1 oz', 'each', 'dozen', '16 oz box', '1 gallon', '64 fl oz', '1 bunch', '1 can'].map((u) => <option key={u} value={u} />)}
+        </datalist>
+        <div className="hint">Lets shopping lists scale it — 2.5 lbs of beef at $5.99/lb shows as $14.98, not $5.99.</div>
       </div>
       <div className="grid-2">
         <div className="field">
@@ -182,8 +204,12 @@ function BarcodePrice({ stores, onClose, onSaved }) {
     setBusy(true); setError('')
     try {
       const d = await api.lookupBarcode(code)
-      if (d.found) setFound({ name: d.name, barcode: code })
-      else { setFound({ name: '', barcode: code }); setError('Product not recognized — type its name below.') }
+      if (d.found) {
+        setFound({ name: d.name, barcode: code, priceHistory: d.priceHistory || [] })
+      } else {
+        setFound({ name: '', barcode: code })
+        setError('Product not recognized — type its name below.')
+      }
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
 

@@ -7,6 +7,9 @@ import { getUser, ok, bad, unauth } from './_shared/auth.js'
 import { stores, readJSON, writeJSON, id } from './_shared/blobs.js'
 import { logError } from './_shared/log.js'
 
+const LOCATIONS = ['Pantry', 'Refrigerator', 'Freezer', 'Deep Freeze']
+const normLocation = (v) => LOCATIONS.find((l) => l.toLowerCase() === String(v || '').trim().toLowerCase()) || 'Pantry'
+
 const CATEGORIES = [
   'Produce', 'Meat & Seafood', 'Dairy & Eggs', 'Bakery', 'Pantry & Dry Goods',
   'Canned & Jarred', 'Condiments & Sauces', 'Spices & Baking', 'Frozen',
@@ -37,6 +40,7 @@ function cleanItem(raw) {
     id: raw.id && String(raw.id).startsWith('pit_') ? raw.id : id('pit_'),
     name,
     category: normalizeCategory(raw.category),
+    location: normLocation(raw.location),
     quantity: (raw.quantity || '').toString().trim(),
     note: (raw.note || '').trim(),
     barcode: raw.barcode || null,
@@ -69,10 +73,10 @@ export default async (req) => {
       const incoming = (Array.isArray(items) ? items : []).map(cleanItem).filter(Boolean)
       const doc = await readJSON(stores.pantry(), key)
       const existing = doc?.items || []
-      const seen = new Set(existing.map((i) => `${i.name.toLowerCase()}|${i.category}`))
+      const seen = new Set(existing.map((i) => `${i.name.toLowerCase()}|${i.location}`))
       const merged = [...existing]
       for (const it of incoming) {
-        const k = `${it.name.toLowerCase()}|${it.category}`
+        const k = `${it.name.toLowerCase()}|${it.location}`
         if (!seen.has(k)) { seen.add(k); merged.push(it) }
       }
       await writeJSON(stores.pantry(), key, { profileId: key, items: merged, updatedAt: new Date().toISOString() })

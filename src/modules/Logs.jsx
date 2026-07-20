@@ -13,6 +13,16 @@ export default function Logs() {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('')
   const [expanded, setExpanded] = useState({})
+  const [tab, setTab] = useState('users')      // who's using it matters more than logs
+  const [users, setUsers] = useState(null)
+  const [totals, setTotals] = useState(null)
+
+  useEffect(() => {
+    if (!user?.isAdmin || tab !== 'users' || users) return
+    api.adminUsers()
+      .then((d) => { setUsers(d.profiles); setTotals(d.totals) })
+      .catch((e) => setError(e.message))
+  }, [user, tab, users])
 
   useEffect(() => {
     if (!user?.isAdmin) return
@@ -53,6 +63,70 @@ export default function Logs() {
         <h1 style={{ color: 'var(--paper)', fontSize: 30, paddingTop: 20 }}>System logs</h1>
         <p className="muted" style={{ color: '#9fb0a2' }}>{count} entries · signed in as {user.email}</p>
 
+        <div className="chips" style={{ margin: '14px 0 4px' }}>
+          <button className={`chip ${tab === 'users' ? 'on' : ''}`} onClick={() => setTab('users')}>Kitchens</button>
+          <button className={`chip ${tab === 'logs' ? 'on' : ''}`} onClick={() => setTab('logs')}>Logs</button>
+        </div>
+
+        {tab === 'users' && (
+          <>
+            {totals && (
+              <div className="chips" style={{ margin: '10px 0 16px' }}>
+                {[
+                  ['kitchens', totals.kitchens],
+                  ['people', totals.people],
+                  ['recipes', totals.recipes],
+                  ['lists', totals.lists],
+                  ['prices', totals.prices],
+                ].map(([label, n]) => (
+                  <span key={label} className="chip" style={{ cursor: 'default', background: 'var(--ink-2)', borderColor: 'var(--ink-3)', color: 'var(--paper)' }}>
+                    <span className="mono" style={{ color: 'var(--saffron)', fontWeight: 700 }}>{n}</span> {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {users === null ? (
+              <div className="center-load" style={{ color: '#9fb0a2' }}><Spinner light /> Loading kitchens…</div>
+            ) : users.length === 0 ? (
+              <p style={{ color: '#9fb0a2' }}>Nobody has created a kitchen yet.</p>
+            ) : (
+              <div className="stack">
+                {users.map((u) => (
+                  <div key={u.id} style={{ background: 'var(--ink-2)', border: '1px solid var(--ink-3)', borderRadius: 12, padding: 14 }}>
+                    <div className="row-between" style={{ gap: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, color: 'var(--saffron)' }}>{u.displayName}</div>
+                        <div className="mono" style={{ fontSize: 12, color: '#c3cdc4', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.ownerEmail}
+                        </div>
+                        {u.collaborator && (
+                          <div className="mono" style={{ fontSize: 12, color: '#9fb0a2' }}>
+                            + {u.collaborator}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div className="mono" style={{ fontSize: 11, color: '#9fb0a2' }}>
+                          {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—'}
+                        </div>
+                        {u.zip && <div className="mono" style={{ fontSize: 11, color: '#7f8f81' }}>{u.zip}</div>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, marginTop: 10, fontSize: 12, color: '#9fb0a2' }}>
+                      <span><span className="mono" style={{ color: 'var(--paper)' }}>{u.recipes}</span> recipes</span>
+                      <span><span className="mono" style={{ color: 'var(--paper)' }}>{u.lists}</span> lists</span>
+                      <span><span className="mono" style={{ color: 'var(--paper)' }}>{u.pantryItems}</span> pantry</span>
+                      <span><span className="mono" style={{ color: 'var(--paper)' }}>{u.pricesContributed}</span> prices</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'logs' && (
+        <>
         <div className="chips" style={{ margin: '14px 0' }}>
           {['', 'error', 'info'].map((f) => (
             <button key={f || 'all'} className={`chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>
@@ -103,6 +177,8 @@ export default function Logs() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

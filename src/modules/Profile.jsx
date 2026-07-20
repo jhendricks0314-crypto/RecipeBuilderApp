@@ -2,15 +2,17 @@ import { useState } from 'react'
 import { api } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { Banner, Spinner, Toast } from '../components/ui.jsx'
+import { fromNow } from '../lib/util.js'
 
 export default function Profile() {
   const { user, refresh, logout } = useAuth()
   const p = user?.profile
-  const isOwner = user?.role === 'owner'
 
+  const isOwner = user?.role === 'owner'
+  const collab = p?.collaborator || null
+  const [inviteEmail, setInviteEmail] = useState('')
   const [displayName, setDisplayName] = useState(p?.displayName || '')
   const [zip, setZip] = useState(p?.zip || '')
-  const [newMember, setNewMember] = useState('')
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -25,7 +27,7 @@ export default function Profile() {
     <div>
       <div className="section-title">Profile</div>
       <h1 className="page-h">{p?.displayName}</h1>
-      <p className="page-sub">You're signed in as {user.email}{isOwner ? ' — you own this profile.' : ' — you are a member of this profile.'}</p>
+      <p className="page-sub">Signed in as {user.email}{isOwner ? ' — you own this kitchen.' : ' — you collaborate on this kitchen.'}</p>
 
       {error && <Banner kind="error">{error}</Banner>}
 
@@ -33,54 +35,82 @@ export default function Profile() {
         <strong>Details</strong>
         <hr className="perf" />
         <div className="field">
-          <label className="label">Profile name</label>
-          <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} disabled={!isOwner} />
+          <label className="label">Kitchen name</label>
+          <input className="input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
           <label className="label">ZIP code</label>
-          <input className="input" value={zip} onChange={(e) => setZip(e.target.value)} disabled={!isOwner} inputMode="numeric" placeholder="72701" />
+          <input className="input" value={zip} onChange={(e) => setZip(e.target.value)} inputMode="numeric" placeholder="72701" />
           <div className="hint">Used to estimate grocery prices. Saved until you change it.</div>
         </div>
-        {isOwner && (
-          <button className="btn btn-dark btn-sm" style={{ marginTop: 14 }}
-            onClick={() => run('save', () => api.updateProfile({ displayName, zip }), 'Saved')} disabled={busy === 'save'}>
-            {busy === 'save' ? <Spinner light /> : 'Save changes'}
-          </button>
-        )}
+        {isOwner && <button className="btn btn-dark btn-sm" style={{ marginTop: 14 }}
+          onClick={() => run('save', () => api.updateProfile({ displayName, zip }), 'Saved')} disabled={busy === 'save'}>
+          {busy === 'save' ? <Spinner light /> : 'Save changes'}
+        </button>}
       </div>
 
       <div className="card">
-        <strong>Members</strong>
-        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>People who can sign in to this profile. Only Gmail accounts that don't already own a profile can be added.</p>
+        <strong>Kitchen access</strong>
         <hr className="perf" />
-        <div className="stack">
-          {(p?.members || []).map((m) => (
-            <div key={m.email} className="row-between">
-              <div>
-                <div style={{ fontWeight: 600 }}>{m.email}</div>
-                <div className="tag" style={{ marginTop: 2 }}>{m.role}</div>
-              </div>
-              {isOwner && m.role !== 'owner' && (
-                <button className="linklike tomato" style={{ fontSize: 13 }}
-                  onClick={() => run('rm' + m.email, () => api.removeMember(m.email), 'Member removed')}>
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
+        <p className="muted" style={{ marginTop: 0, fontSize: 13.5 }}>
+          You can add one other person to this kitchen. You'll both see the same recipes, pantry,
+          shopping lists and prices — nothing needs sharing back and forth.
+        </p>
+
+        <div className="check-row" style={{ padding: '10px 0' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>{p?.ownerEmail}</div>
+            <div className="muted" style={{ fontSize: 12 }}>Owner</div>
+          </div>
         </div>
-        {isOwner && (
+
+        {collab ? (
+          <div className="check-row" style={{ padding: '10px 0' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{collab.email}</div>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Collaborator{collab.addedAt ? ` · joined ${fromNow(collab.addedAt)}` : ''}
+              </div>
+            </div>
+            <button
+              className="linklike tomato" style={{ fontSize: 12.5 }}
+              disabled={busy === 'collab'}
+              onClick={() => {
+                const msg = isOwner
+                  ? `Remove ${collab.email} from this kitchen? They'll lose access to everything in it.`
+                  : 'Leave this kitchen? You will lose access to its recipes and lists.'
+                if (!confirm(msg)) return
+                run('collab', () => api.removeCollaborator(), isOwner ? 'Removed' : 'Left kitchen')
+                  .then(() => { if (!isOwner) window.location.href = '/' })
+              }}
+            >
+              {isOwner ? 'remove' : 'leave'}
+            </button>
+          </div>
+        ) : isOwner ? (
           <>
-            <hr className="perf" />
-            <label className="label">Add a Gmail account</label>
+            <label className="label" style={{ marginTop: 10 }}>Invite someone</label>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="input" placeholder="friend@gmail.com" value={newMember} onChange={(e) => setNewMember(e.target.value)} />
-              <button className="btn btn-primary" disabled={busy === 'add' || !newMember}
-                onClick={() => run('add', async () => { await api.addMember(newMember); setNewMember('') }, 'Member added')}>
-                {busy === 'add' ? <Spinner /> : 'Add'}
+              <input
+                className="input" inputMode="email" placeholder="them@gmail.com"
+                value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && inviteEmail.trim() &&
+                  run('collab', () => api.addCollaborator(inviteEmail.trim()), 'Added').then(() => setInviteEmail(''))}
+              />
+              <button
+                className="btn btn-primary"
+                disabled={busy === 'collab' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inviteEmail.trim())}
+                onClick={() => run('collab', () => api.addCollaborator(inviteEmail.trim()), 'Added').then(() => setInviteEmail(''))}
+              >
+                {busy === 'collab' ? <Spinner /> : 'Add'}
               </button>
             </div>
+            <div className="hint">
+              They sign in with that Google account. It can't already own or collaborate on another kitchen.
+            </div>
           </>
+        ) : (
+          <p className="muted" style={{ fontSize: 13 }}>Only the owner can invite someone.</p>
         )}
       </div>
 
@@ -89,16 +119,14 @@ export default function Profile() {
         <hr className="perf" />
         <div className="btn-row">
           <button className="btn btn-ghost" onClick={logout}>Sign out</button>
-          {isOwner && (
-            <button className="btn btn-danger"
-              onClick={() => {
-                if (!confirm('Delete this profile? This removes all its recipes and shopping lists and unlinks every member. This cannot be undone.')) return
-                run('del', async () => { await api.deleteProfile() }, 'Profile deleted').then(() => { window.location.href = '/' })
-              }}
-              disabled={busy === 'del'}>
-              {busy === 'del' ? <Spinner /> : 'Delete profile'}
-            </button>
-          )}
+          {isOwner && <button className="btn btn-danger"
+            onClick={() => {
+              if (!confirm('Delete this kitchen? This removes all of its recipes and shopping lists. This cannot be undone.')) return
+              run('del', async () => { await api.deleteProfile() }, 'Deleted').then(() => { window.location.href = '/' })
+            }}
+            disabled={busy === 'del'}>
+            {busy === 'del' ? <Spinner /> : 'Delete kitchen'}
+          </button>}
         </div>
       </div>
 

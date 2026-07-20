@@ -4,7 +4,7 @@ import { api } from '../lib/api.js'
 import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Loading, Empty, Toast, Modal, Spinner } from '../components/ui.jsx'
 import { IconPantry, IconBarcode, IconCamera, IconClose } from '../components/icons.jsx'
-import { PANTRY_CATEGORIES, categoryEmoji, normalizeCategory } from '../lib/util.js'
+import { PANTRY_CATEGORIES, categoryEmoji, normalizeCategory, PANTRY_LOCATIONS, locationEmoji } from '../lib/util.js'
 
 const keyOf = (i) => `${i.name.toLowerCase()}|${i.category}`
 
@@ -54,11 +54,26 @@ export default function Pantry() {
   const editItem = (id, patch) => persist(items.map((i) => (i.id === id ? { ...i, ...patch } : i)))
   const removeItem = (id) => persist(items.filter((i) => i.id !== id))
 
+  // Which storage space we're looking at. '' = everything.
+  const [loc, setLoc] = usePersistentState('pantry.location', '')
+
+  const visible = useMemo(
+    () => (items || []).filter((i) => !loc || (i.location || 'Pantry') === loc),
+    [items, loc]
+  )
+
+  const counts = useMemo(() => {
+    const c = {}
+    for (const it of items || []) c[it.location || 'Pantry'] = (c[it.location || 'Pantry'] || 0) + 1
+    return c
+  }, [items])
+
+  // Within a location, still group by category.
   const grouped = useMemo(() => {
     const g = {}
-    for (const it of items || []) (g[it.category] ||= []).push(it)
+    for (const it of visible) (g[it.category] ||= []).push(it)
     return PANTRY_CATEGORIES.filter((c) => g[c]?.length).map((c) => [c, g[c].sort((a, b) => a.name.localeCompare(b.name))])
-  }, [items])
+  }, [visible])
 
   if (items === null) return <Loading label="Opening your pantry…" />
 
@@ -80,6 +95,19 @@ export default function Pantry() {
 
       {error && <Banner kind="error">{error}</Banner>}
 
+      {/* Where things live */}
+      <div className="chips" style={{ marginBottom: 14 }}>
+        <button className={`chip ${loc === '' ? 'on' : ''}`} onClick={() => setLoc('')}>
+          All {items.length > 0 && <span className="mono" style={{ opacity: .7 }}>· {items.length}</span>}
+        </button>
+        {PANTRY_LOCATIONS.map((l) => (
+          <button key={l} className={`chip ${loc === l ? 'on' : ''}`} onClick={() => setLoc(l)}>
+            {locationEmoji(l)} {l}
+            {counts[l] ? <span className="mono" style={{ opacity: .7 }}> · {counts[l]}</span> : null}
+          </button>
+        ))}
+      </div>
+
       {/* Add methods */}
       <div className="card">
         <div className="chips" style={{ marginBottom: 14 }}>
@@ -87,9 +115,13 @@ export default function Pantry() {
           <button className={`chip ${mode === 'barcode' ? 'on' : ''}`} onClick={() => setMode('barcode')}><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>Scan barcode</span></button>
           <button className={`chip ${mode === 'photo' ? 'on' : ''}`} onClick={() => setMode('photo')}>Scan / photo</button>
         </div>
-        {mode === 'manual' && <ManualAdd onAdd={(it) => addItems([it])} />}
-        {mode === 'barcode' && <BarcodeButton onAdd={addItems} />}
-        {mode === 'photo' && <PhotoButton onAdd={addItems} />}
+        <div className="hint" style={{ marginTop: -6, marginBottom: 10 }}>
+          Adding to <strong>{locationEmoji(loc || 'Pantry')} {loc || 'Pantry'}</strong>
+          {!loc && ' — pick a space above to add somewhere else.'}
+        </div>
+        {mode === 'manual' && <ManualAdd location={loc || 'Pantry'} onAdd={(it) => addItems([it])} />}
+        {mode === 'barcode' && <BarcodeButton location={loc || 'Pantry'} onAdd={addItems} />}
+        {mode === 'photo' && <PhotoButton location={loc || 'Pantry'} onAdd={addItems} />}
       </div>
 
       {/* Cook CTA */}
@@ -124,7 +156,7 @@ export default function Pantry() {
 }
 
 // ---- Manual entry ----------------------------------------------------------
-function ManualAdd({ onAdd }) {
+function ManualAdd({ onAdd, location }) {
   const [name, setName] = usePersistentState('pantry.draft.name', '')
   const [category, setCategory] = usePersistentState('pantry.draft.category', '')
   const [touchedCat, setTouchedCat] = useState(false)
@@ -136,7 +168,7 @@ function ManualAdd({ onAdd }) {
   }
   const submit = () => {
     if (!name.trim()) return
-    onAdd({ name, category: category || normalizeCategory(name), quantity, source: 'manual' })
+    onAdd({ name, category: category || normalizeCategory(name), quantity, location, source: 'manual' })
     setName(''); setQuantity(''); setCategory(''); setTouchedCat(false)
   }
 
@@ -158,7 +190,7 @@ function ManualAdd({ onAdd }) {
 }
 
 // ---- Barcode ---------------------------------------------------------------
-function BarcodeButton({ onAdd }) {
+function BarcodeButton({ onAdd, location }) {
   const [open, setOpen] = useState(false)
   return (
     <div>
@@ -222,7 +254,7 @@ function BarcodeScanner({ onAdd, onClose }) {
   }, [])
 
   const accept = () => {
-    if (pending?.found) onAdd([{ name: pending.name, category: pending.category, quantity: pending.quantity, source: 'barcode', barcode: pending.upc }])
+    if (pending?.found) onAdd([{ name: pending.name, category: pending.category, quantity: pending.quantity, location, source: 'barcode', barcode: pending.upc }])
     setPending(null)
   }
 
@@ -268,18 +300,18 @@ function BarcodeScanner({ onAdd, onClose }) {
 }
 
 // ---- Photo -----------------------------------------------------------------
-function PhotoButton({ onAdd }) {
+function PhotoButton({ onAdd, location }) {
   const [open, setOpen] = useState(false)
   return (
     <div>
       <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>Take a photo of your cabinet, fridge, or counter and we'll identify what's there.</p>
       <button className="btn btn-dark" onClick={() => setOpen(true)}><IconCamera /> Snap a photo</button>
-      {open && <PhotoIdentify onAdd={onAdd} onClose={() => setOpen(false)} />}
+      {open && <PhotoIdentify onAdd={onAdd} location={location} onClose={() => setOpen(false)} />}
     </div>
   )
 }
 
-function PhotoIdentify({ onAdd, onClose }) {
+function PhotoIdentify({ onAdd, location, onClose }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const scanningRef = useRef(false)
@@ -406,7 +438,7 @@ function PhotoIdentify({ onAdd, onClose }) {
   }
 
   const addSelected = () => {
-    onAdd(found.filter((i) => i.on).map((i) => ({ name: i.name, category: i.category, quantity: i.quantity, source: 'photo' })))
+    onAdd(found.filter((i) => i.on).map((i) => ({ name: i.name, category: i.category, quantity: i.quantity, location, source: 'photo' })))
     onClose()
   }
 
@@ -538,10 +570,26 @@ function PantryRow({ item, onEdit, onRemove }) {
     <div className="check-row" style={{ padding: '10px 0' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         {editing ? (
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input className="input" style={{ padding: '6px 10px' }} defaultValue={item.name} onBlur={(e) => onEdit({ name: e.target.value.trim() || item.name })} />
-            <input className="input" style={{ padding: '6px 10px', width: 84 }} defaultValue={item.quantity} placeholder="Qty" onBlur={(e) => onEdit({ quantity: e.target.value.trim() })} />
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input className="input" style={{ padding: '6px 10px' }} defaultValue={item.name} onBlur={(e) => onEdit({ name: e.target.value.trim() || item.name })} />
+              <input className="input" style={{ padding: '6px 10px', width: 84 }} defaultValue={item.quantity} placeholder="Qty" onBlur={(e) => onEdit({ quantity: e.target.value.trim() })} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <select
+                className="select" style={{ padding: '6px 10px' }}
+                value={item.location || 'Pantry'} onChange={(e) => onEdit({ location: e.target.value })}
+              >
+                {PANTRY_LOCATIONS.map((l) => <option key={l} value={l}>{locationEmoji(l)} {l}</option>)}
+              </select>
+              <select
+                className="select" style={{ padding: '6px 10px' }}
+                value={item.category} onChange={(e) => onEdit({ category: e.target.value })}
+              >
+                {PANTRY_CATEGORIES.map((c) => <option key={c} value={c}>{categoryEmoji(c)} {c}</option>)}
+              </select>
+            </div>
+          </>
         ) : (
           <div>
             <span style={{ fontWeight: 500 }}>{item.name}</span>

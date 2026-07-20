@@ -17,6 +17,7 @@
 import { getUser, ok, bad, unauth, forbidden } from './_shared/auth.js'
 import { stores as S, readJSON, writeJSON, listAll, id } from './_shared/blobs.js'
 import { priceFromDB, allPriceRecords, similarity } from './_shared/pricing.js'
+import { priceForQuantity } from './_shared/units.js'
 import { claudeJSON, hasClaude } from './_shared/claude.js'
 import { logError } from './_shared/log.js'
 
@@ -117,6 +118,12 @@ export default async (req) => {
         const owned = a.have || !!pantryHit
 
         const { prices, best } = priceFromDB(a.name, priceRecords, preferred)
+
+        // A recorded price is for ONE unit (e.g. $5.99 per lb). Scale it to the
+        // amount this list actually needs, so 2.5 lbs of beef reads ~$15, not $5.99.
+        const qtyText = a.quantities.join(' + ')
+        const scaled = best ? priceForQuantity(qtyText, best.price, best.unit) : null
+
         items.push({
           id: id('item_'),
           name: a.name,
@@ -127,7 +134,12 @@ export default async (req) => {
           inPantry: owned,
           pantryNote: pantryHit ? `You have ${pantryHit.name} in your pantry` : (owned ? 'Already on hand' : null),
           chosenStore: best?.store || null,
-          bestPrice: best?.price ?? null,
+          unitPrice: best?.price ?? null,       // price for ONE unit
+          priceUnit: best?.unit || '',          // what that unit is ("1 lb")
+          packages: scaled?.packages ?? null,   // how many units this list needs
+          bestPrice: scaled ? scaled.total : (best?.price ?? null), // line total
+          priceBasis: scaled?.basis || '',
+          priceExact: scaled ? scaled.exact : null,
           priceByStore: prices,                 // recorded prices only; estimates fill in later
           priceSource: best ? 'recorded' : null,
           estimateUnit: null,

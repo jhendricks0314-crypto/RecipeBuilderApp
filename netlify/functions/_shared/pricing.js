@@ -1,4 +1,4 @@
-// ForkCast pricing.
+// RAIning Recipes pricing.
 //
 // Two sources, in strict priority order:
 //   1. THE PRICE DATABASE — real prices you've recorded (scanned receipts, barcode
@@ -53,6 +53,9 @@ export function priceFromDB(name, priceRecords, preferredStores = []) {
       byStore[r.store] = {
         store: r.store,
         price: Number(r.unitPrice ?? r.price) || 0,
+        // What that price buys ("1 lb", "16 oz box"). Without it we can't scale
+        // to the amount a recipe actually calls for.
+        unit: r.unit || '',
         date: r.date,
         source: 'recorded',
       }
@@ -135,3 +138,73 @@ export async function estimatePrices(names, zip, { force = false } = {}) {
   }
   return out
 }
+
+// ---------------------------------------------------------------------------
+// Shared pricing pipeline — used by BOTH the shopping list and the recipe
+// cost estimate, so the two can never disagree.
+//
+// For each item: recorded prices win (they're what you actually paid), and any
+// item with no recorded price gets an AI estimate for the ZIP. Every price is
+// scaled to the quantity actually needed via the unit maths.
+// ---------------------------------------------------------------------------
+import { priceForQuantity } from './units.js'
+
+const ESTIMATE_STORE = 'Estimated'
+
+/**
+ * @param items [{ name, quantity }]
+ * @returns Map name -> {
+ *   options: [{ store, price, unit, date, source, lineTotal, packages, exact }],
+ *   best, lineTotal, priced
+ * }
+ */
+export async function priceItems(items, { zip, preferredStores = [], records = null, allowEstimates = true } = {}) {
+  const priceRecords = records || (await allPriceRecords())
+  const out = new Map()
+  const needEstimate = []
+
+  for (const it of items) {
+    const { prices } = priceFromDB(it.name, priceRecords, preferredStores)
+    // Scale every store's price to the amount this recipe/list needs.
+    const options = prices.map((p) => {
+      const scaled = priceForQuantity(it.quantity, p.price, p.unit)
+      return {
+        store: p.store,
+        price: p.price,           // per unit
+        unit: p.unit || '',
+        date: p.date,
+        source: 'recorded',
+        lineTotal: scaled ? scaled.total : p.price,
+        packages: scaled?.packages ?? null,
+        exact: scaled ? scaled.exact : null,
+      }
+    })
+    out.set(it.name, { options, best: options[0] || null, lineTotal: options[0]?.lineTotal ?? null, priced: options.length > 0 })
+    if (!options.length) needEstimate.push(it)
+  }
+
+  // One batched estimate call for everything with no recorded price.
+  if (allowEstimates && needEstimate.length && hasClaude()) {
+    const est = await estimatePrices(needEstimate.map((i) => i.name), zip)
+    for (const it of needEstimate) {
+      const e = est.get(it.name)
+      if (!e) continue
+      const scaled = priceForQuantity(it.quantity, e.price, e.unit)
+      const option = {
+        store: ESTIMATE_STORE,
+        price: e.price,
+        unit: e.unit || '',
+        date: new Date().toISOString().slice(0, 10),
+        source: 'estimated',
+        lineTotal: scaled ? scaled.total : e.price,
+        packages: scaled?.packages ?? null,
+        exact: scaled ? scaled.exact : null,
+      }
+      out.set(it.name, { options: [option], best: option, lineTotal: option.lineTotal, priced: true })
+    }
+  }
+
+  return out
+}
+
+export { ESTIMATE_STORE }

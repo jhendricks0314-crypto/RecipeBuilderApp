@@ -6,7 +6,7 @@ import { useAuth } from './auth.jsx'
 // namespaced per signed-in account so linked users on one device don't collide.
 //
 // (This is a normal installed web app, so localStorage is the right tool here.)
-const PREFIX = 'forkcast:draft:'
+const PREFIX = 'rainingrecipes:draft:'
 
 const hasLS = () => {
   try { return typeof localStorage !== 'undefined' } catch { return false }

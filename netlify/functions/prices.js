@@ -1,6 +1,6 @@
 // The price database — real prices you've recorded.
 //   GET    /api/prices?q=milk        -> list recorded prices (newest first)
-//   POST   /api/prices               { name, store, price, quantity?, date?, barcode? }
+//   POST   /api/prices               { name, store, price, unit?, quantity?, date?, barcode? }
 //   DELETE /api/prices?id=ri_...     -> remove an entry
 //
 // Entries come from three places: a manual price, a barcode scan, or a scanned
@@ -43,6 +43,9 @@ export default async (req) => {
         date: body.date || new Date().toISOString().slice(0, 10),
         price,
         quantity: qty,
+        // What one unit of this price buys — "1 lb", "dozen", "16 oz box".
+        // Drives per-pound style maths on shopping lists.
+        unit: (body.unit || '').trim(),
         unitPrice: Math.round((price / qty) * 100) / 100,
         barcode: body.barcode || null,
         source: body.source || 'manual', // manual | barcode | receipt

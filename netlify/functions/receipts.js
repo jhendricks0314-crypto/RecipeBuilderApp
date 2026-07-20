@@ -14,9 +14,10 @@ import { logError, logEvent } from './_shared/log.js'
 
 const SYSTEM = `You read a photo of a grocery store receipt and extract line items.
 Return ONLY JSON: { "store": string|null, "date": string|null, "items": [ ... ] }.
-Each item: { "name": string, "price": number, "quantity": number, "unitPrice": number, "isFood": boolean }.
+Each item: { "name": string, "price": number, "quantity": number, "unitPrice": number, "barcode": string|null, "isFood": boolean }.
 - "isFood" is true only for edible grocery items (produce, meat, dairy, pantry, snacks, drinks).
   Non-food (garbage bags, paper towels, cleaning supplies, batteries, gift cards) -> isFood:false.
+- "barcode": many receipts (Walmart especially) print the item's UPC as a ~12-digit number next to the item name. Copy it EXACTLY if present, else null. Do not invent one, and do not use the long transaction/TC barcode from the bottom of the receipt.
 - If quantity is unclear, use 1. unitPrice = price / quantity.
 - Clean up abbreviated names into readable product names (e.g. "GV MLK 2%" -> "Great Value Milk 2%").
 - "date" in YYYY-MM-DD if visible, else null.
@@ -64,6 +65,7 @@ export default async (req) => {
           price: Number(i.price) || 0,
           quantity: Number(i.quantity) || 1,
           unitPrice: Number(i.unitPrice) || Number(i.price) || 0,
+          barcode: /^\d{8,14}$/.test(String(i.barcode || '').trim()) ? String(i.barcode).trim() : null,
         }))
 
       await logEvent({ req, user, action: 'receipt-parse', message: `Parsed ${foodItems.length} food items` })
@@ -93,6 +95,9 @@ export default async (req) => {
           price: Number(it.price) || 0,
           quantity: Number(it.quantity) || 1,
           unitPrice: Number(it.unitPrice) || Number(it.price) || 0,
+          barcode: it.barcode || null,
+          unit: it.unit || '',
+          source: 'receipt',
           contributedBy: user.email,
           createdAt: new Date().toISOString(),
         })

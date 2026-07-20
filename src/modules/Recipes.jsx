@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
 import { Banner, Loading, Empty, RecipeIcon, Stars, Modal, Spinner, Toast } from '../components/ui.jsx'
 import { stamp, fromNow, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
+import StepUses from '../components/StepUses.jsx'
+import { usePersistentState } from '../lib/persist.jsx'
+import IngredientHelp from '../components/IngredientHelp.jsx'
 
 export default function Recipes() {
   const navigate = useNavigate()
@@ -22,8 +25,10 @@ export default function Recipes() {
   const [fAudience, setFAudience] = useState('')
   const [fServings, setFServings] = useState('')
   const [fRating, setFRating] = useState('')
-  const anyFilter = q || fCuisine || fTool || fTime || fAudience || fServings || fRating
-  const clearFilters = () => { setQ(''); setFCuisine(''); setFTool(''); setFTime(''); setFAudience(''); setFServings(''); setFRating('') }
+  const [favOnly, setFavOnly] = usePersistentState('recipes.favOnly', false)
+  const [filtersOpen, setFiltersOpen] = usePersistentState('recipes.filtersOpen', false)
+  const anyFilter = q || fCuisine || fTool || fTime || fAudience || fServings || fRating || favOnly
+  const clearFilters = () => { setQ(''); setFCuisine(''); setFTool(''); setFTime(''); setFAudience(''); setFServings(''); setFRating(''); setFavOnly(false) }
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 1600) }
   const load = () => api.listRecipes().then((d) => setRecipes(d.recipes)).catch((e) => setError(e.message))
@@ -47,9 +52,25 @@ export default function Recipes() {
       if (fAudience && !audienceOk(fAudience, r.audience)) return false
       if (fServings && (r.servings || 0) < Number(fServings)) return false
       if (fRating && (r.rating || 0) < Number(fRating)) return false
+      if (favOnly && !r.favorite) return false
       return true
     })
-  }, [recipes, q, fCuisine, fTool, fTime, fAudience, fServings, fRating])
+    // Favourites always float to the top, newest-first within each group.
+    .sort((a, b) => {
+      if (!!b.favorite !== !!a.favorite) return b.favorite ? 1 : -1
+      return (b.savedAt || b.generatedAt || '').localeCompare(a.savedAt || a.generatedAt || '')
+    })
+  }, [recipes, q, fCuisine, fTool, fTime, fAudience, fServings, fRating, favOnly])
+
+  const toggleFavorite = async (r, e) => {
+    e?.stopPropagation()
+    const next = { ...r, favorite: !r.favorite }
+    setRecipes((rs) => rs.map((x) => (x.id === r.id ? next : x)))
+    try { await api.updateRecipe(next) } catch (err) { setError(err.message) }
+  }
+
+  const favCount = (recipes || []).filter((r) => r.favorite).length
+  const activeFilterCount = [fCuisine, fTool, fTime, fAudience, fServings, fRating].filter(Boolean).length
 
   const open = recipes?.find((r) => r.id === openId)
   const selectedIds = Object.keys(selected).filter((id) => selected[id])
@@ -62,7 +83,7 @@ export default function Recipes() {
 
   const buildListFromSelection = () => {
     if (!selectedIds.length) return
-    navigate('/shopping', { state: { recipeIds: selectedIds } })
+    navigate('/list', { state: { recipeIds: selectedIds } })
   }
 
   if (recipes === null) return <Loading label="Opening your cookbook…" />
@@ -83,40 +104,68 @@ export default function Recipes() {
         <div className="card"><Empty emoji="🍳" title="Your cookbook is empty">Generate recipes and save them — they'll live here, tied to your profile.</Empty></div>
       ) : (
         <>
-          <div className="card">
-            <input className="input" placeholder="Search recipes…" value={q} onChange={(e) => setQ(e.target.value)} />
-            <div className="grid-2" style={{ marginTop: 10 }}>
-              <select className="select" value={fCuisine} onChange={(e) => setFCuisine(e.target.value)}>
-                <option value="">Any cuisine</option>
-                {CUISINES.filter((c) => c !== 'Random').map((c) => <option key={c}>{c}</option>)}
-              </select>
-              <select className="select" value={fTool} onChange={(e) => setFTool(e.target.value)}>
-                <option value="">Any tool</option>
-                {TOOLS.map((t) => <option key={t}>{t}</option>)}
-              </select>
+          {/* Compact bar: search + favourites are always here, the rest folds away
+              so recipes start right below the fold instead of after a filter wall. */}
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                className="input" style={{ padding: '8px 12px' }}
+                placeholder="Search recipes…" value={q} onChange={(e) => setQ(e.target.value)}
+              />
+              <button
+                className={`chip ${favOnly ? 'on' : ''}`}
+                style={{ flexShrink: 0, padding: '8px 12px' }}
+                onClick={() => setFavOnly(!favOnly)}
+                title="Show favourites only"
+              >
+                ★ {favCount || ''}
+              </button>
+              <button
+                className={`chip ${filtersOpen || anyFilter ? 'on' : ''}`}
+                style={{ flexShrink: 0, padding: '8px 12px' }}
+                onClick={() => setFiltersOpen(!filtersOpen)}
+                aria-expanded={filtersOpen}
+              >
+                Filters{activeFilterCount ? ` · ${activeFilterCount}` : ''}
+              </button>
             </div>
-            <div className="grid-2" style={{ marginTop: 10 }}>
-              <select className="select" value={fTime} onChange={(e) => setFTime(e.target.value)}>
-                <option value="">Any time</option>
-                {TIMES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
-              </select>
-              <select className="select" value={fAudience} onChange={(e) => setFAudience(e.target.value)}>
-                <option value="">Any audience</option>
-                {AUDIENCES.map((a) => <option key={a}>{a}</option>)}
-              </select>
-            </div>
-            <div className="grid-2" style={{ marginTop: 10 }}>
-              <select className="select" value={fRating} onChange={(e) => setFRating(e.target.value)}>
-                <option value="">Any rating</option>
-                <option value="5">5 stars</option>
-                <option value="4">4+ stars</option>
-                <option value="3">3+ stars</option>
-              </select>
-              <input className="input" type="number" min="1" placeholder="Serves at least…" value={fServings} onChange={(e) => setFServings(e.target.value)} />
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-              {anyFilter && <button className="linklike" onClick={clearFilters}>Clear filters</button>}
-            </div>
+
+            {filtersOpen && (
+              <div style={{ marginTop: 12 }}>
+                <div className="grid-2">
+                  <select className="select" value={fCuisine} onChange={(e) => setFCuisine(e.target.value)}>
+                    <option value="">Any cuisine</option>
+                    {CUISINES.filter((c) => c !== 'Random').map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                  <select className="select" value={fTool} onChange={(e) => setFTool(e.target.value)}>
+                    <option value="">Any tool</option>
+                    {TOOLS.map((t) => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="grid-2" style={{ marginTop: 10 }}>
+                  <select className="select" value={fTime} onChange={(e) => setFTime(e.target.value)}>
+                    <option value="">Any time</option>
+                    {TIMES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </select>
+                  <select className="select" value={fAudience} onChange={(e) => setFAudience(e.target.value)}>
+                    <option value="">Any audience</option>
+                    {AUDIENCES.map((a) => <option key={a}>{a}</option>)}
+                  </select>
+                </div>
+                <div className="grid-2" style={{ marginTop: 10 }}>
+                  <select className="select" value={fRating} onChange={(e) => setFRating(e.target.value)}>
+                    <option value="">Any rating</option>
+                    <option value="5">5 stars</option>
+                    <option value="4">4+ stars</option>
+                    <option value="3">3+ stars</option>
+                  </select>
+                  <input className="input" type="number" min="1" placeholder="Serves at least…" value={fServings} onChange={(e) => setFServings(e.target.value)} />
+                </div>
+                {anyFilter && (
+                  <button className="linklike" style={{ marginTop: 10 }} onClick={clearFilters}>Clear filters</button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="row-between" style={{ margin: '16px 2px 10px' }}>
@@ -150,7 +199,18 @@ export default function Recipes() {
                   )}
                   <RecipeIcon recipe={r} />
                   <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => !selecting && setOpenId(r.id)}>
-                    <h3 className="recipe-title">{r.name}</h3>
+                    <div className="row-between" style={{ gap: 8 }}>
+                      <h3 className="recipe-title">{r.name}</h3>
+                      <button
+                        onClick={(e) => toggleFavorite(r, e)}
+                        title={r.favorite ? 'Remove from favourites' : 'Add to favourites'}
+                        aria-pressed={!!r.favorite}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0,
+                                 fontSize: 20, lineHeight: 1, color: r.favorite ? 'var(--saffron)' : 'var(--line)' }}
+                      >
+                        {r.favorite ? '★' : '☆'}
+                      </button>
+                    </div>
                     <p className="muted" style={{ margin: '3px 0 0', fontSize: 13.5 }}>{r.summary}</p>
                     <div className="recipe-meta">
                       <span className="tag">{r.cuisine}</span>
@@ -176,7 +236,7 @@ export default function Recipes() {
             setRecipes((rs) => rs.filter((r) => r.id !== open.id))
             setOpenId(null); flash('Recipe deleted')
           }}
-          onBuildList={() => navigate('/shopping', { state: { recipeIds: [open.id] } })}
+          onBuildList={() => navigate('/list', { state: { recipeIds: [open.id] } })}
           flash={flash}
           setError={setError}
         />
@@ -201,6 +261,7 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
   const [recipeComment, setRecipeComment] = useState('')
   const [stepComment, setStepComment] = useState({})
   const [editingSteps, setEditingSteps] = useState(false)
+  const [ingHelp, setIngHelp] = useState(null)
   const [commentingStep, setCommentingStep] = useState(null)
   const fileRef = useState(null)
 
@@ -208,7 +269,7 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
   const deleteStep = (n) => onChange({ steps: recipe.steps.filter((s) => s.n !== n).map((s, i) => ({ ...s, n: i + 1 })) })
   const addStep = () => {
     if (!newStep.trim()) return
-    onChange({ steps: [...recipe.steps, { n: recipe.steps.length + 1, text: newStep.trim(), note: '', comments: [] }] })
+    onChange({ steps: [...recipe.steps, { n: recipe.steps.length + 1, text: newStep.trim(), note: '', uses: [], comments: [] }] })
     setNewStep('')
   }
   const addStepComment = (n) => {
@@ -280,14 +341,27 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
       {/* Ingredients */}
       <hr className="perf" />
       <span className="label">Ingredients</span>
-      <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+      <div style={{ margin: '6px 0 0' }}>
         {recipe.ingredients?.map((ing, k) => (
-          <li key={k} style={{ marginBottom: 3 }}>
-            {ing.quantity} {ing.item}
-            {ing.have && <span className="basil" style={{ fontSize: 12 }}> · have it</span>}
-          </li>
+          <div key={k} style={{ marginBottom: 4 }}>
+            <button
+              onClick={() => setIngHelp(ingHelp === k ? null : k)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                       background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', color: 'inherit', fontSize: 14.5 }}
+            >
+              <span style={{ color: 'var(--saffron-deep)', fontSize: 11 }}>{ingHelp === k ? '▾' : '▸'}</span>
+              <span style={{ flex: 1 }}>
+                {ing.quantity} {ing.item}
+                {ing.have && <span className="basil" style={{ fontSize: 12 }}> · have it</span>}
+              </span>
+              <span className="linklike" style={{ fontSize: 12, flexShrink: 0 }}>swap / ask</span>
+            </button>
+            {ingHelp === k && (
+              <IngredientHelp recipe={recipe} ingredient={ing} onClose={() => setIngHelp(null)} />
+            )}
+          </div>
         ))}
-      </ul>
+      </div>
 
       {/* Steps — clean and readable by default; editable only on request */}
       <hr className="perf" />
@@ -304,6 +378,7 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
             <li key={s.n}>
               <div className="step-body">
                 <div className="step-text">{s.text}</div>
+                <StepUses uses={s.uses} ingredients={recipe.ingredients} />
                 {s.note && <div className="muted step-note">⏱ While you wait: {s.note}</div>}
                 {(s.comments || []).map((c, ci) => (
                   <div key={ci} className="step-note" style={{ color: 'var(--ink-soft)' }}>💬 {c.text}</div>
@@ -332,6 +407,11 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
                   <textarea className="textarea" style={{ minHeight: 44 }} value={s.text} onChange={(e) => editStep(s.n, e.target.value)} />
                   <button className="linklike tomato" style={{ fontSize: 12, paddingTop: 8 }} onClick={() => deleteStep(s.n)}>delete</button>
                 </div>
+                {s.uses?.length > 0 && (
+                  <div style={{ margin: '2px 0 0 24px' }}>
+                    <StepUses uses={s.uses} ingredients={recipe.ingredients} />
+                  </div>
+                )}
                 {s.note && <div className="muted" style={{ fontSize: 12.5, margin: '2px 0 0 24px' }}>⏱ While you wait: {s.note}</div>}
               </div>
             ))}
@@ -384,8 +464,8 @@ function ShareModal({ recipeIds, title, onClose, flash }) {
   return (
     <Modal title={`Share ${title}`} onClose={onClose}>
       <p className="muted" style={{ marginTop: 0 }}>
-        Enter the Google account of another ForkCast household — {many ? 'the recipes copy' : 'the recipe copies'} straight
-        into their cookbook. (Anyone already on your family profile can see these already.)
+        Enter the Google account of another RAIning Recipes user — {many ? 'the recipes copy' : 'the recipe copies'} straight
+        into their cookbook.
       </p>
       {error && <Banner kind="error">{error}</Banner>}
       {result ? (

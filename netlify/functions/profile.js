@@ -1,19 +1,16 @@
 // Profile management.
 //   POST /api/profile            { displayName, zip? }   -> create the family (caller = owner)
-//   POST /api/profile/members    { email }               -> owner links a Gmail account
-//   DELETE /api/profile/members  { email }               -> owner unlinks a member
 //   DELETE /api/profile                                  -> owner deletes the profile
 //
-// Rules from the spec:
-//   • The creator owns the profile.
-//   • Only the owner can add other Gmail accounts.
-//   • A Gmail being added must not already own its own profile.
-//   • The owner may delete the profile.
+// A profile is owned by the Google account that created it, and the owner may
+// invite ONE collaborator so two people share the same kitchen — same recipes,
+// pantry, lists and prices, no sharing back and forth.
+//   POST   /api/profile/collaborator  { email }  -> owner invites (max 1)
+//   DELETE /api/profile/collaborator             -> owner removes, or collaborator leaves
 import { getSession, getUser, ok, bad, unauth, forbidden } from './_shared/auth.js'
 import { stores, readJSON, writeJSON, listAll, id } from './_shared/blobs.js'
 import { logError, logEvent } from './_shared/log.js'
 
-const isGmail = (e) => /^[^@\s]+@(gmail\.com|googlemail\.com)$/i.test(e || '')
 
 
 export default async (req) => {
@@ -37,7 +34,7 @@ export default async (req) => {
         displayName: body.displayName.trim(),
         zip: (body.zip || '').trim(), // used for price estimates; persists until changed
         prefs: {},                     // household cooking preferences
-        members: [{ email: user.email, role: 'owner', addedAt: new Date().toISOString() }],
+        collaborator: null,            // { email, addedAt } — at most one
         preferredStores: [],
         createdAt: new Date().toISOString(),
       }
@@ -53,47 +50,51 @@ export default async (req) => {
     if (!profile) return bad('Profile not found.')
     const isOwner = profile.ownerEmail === user.email
 
-    // ---- Add a member (owner only) ----
-    if (req.method === 'POST' && seg === 'members') {
+    // ---- Invite a collaborator (owner only, max one) ----
+    if (req.method === 'POST' && seg === 'collaborator') {
       if (!isOwner) return forbidden()
+      if (profile.collaborator) return bad('This kitchen already has a collaborator. Remove them first.')
+
       const { email } = await req.json()
       const addr = (email || '').toLowerCase().trim()
-      if (!isGmail(addr)) return bad('Only Gmail accounts can be linked.')
-      if (addr === user.email) return bad('You already own this profile.')
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr)) return bad('Enter a valid email address.')
+      if (addr === profile.ownerEmail) return bad("That's your own account.")
 
-      // The account must not already own a profile.
+      // They can't already be in another kitchen — a person belongs to one.
       const existing = await readJSON(stores.emailIndex(), addr)
       if (existing) {
         const other = await readJSON(stores.profiles(), existing.profileId)
-        if (other && other.ownerEmail === addr) {
-          return bad(`${addr} already owns their own profile and can't be linked.`)
-        }
-        if (existing.profileId === profile.id) return bad(`${addr} is already on this profile.`)
-        return bad(`${addr} already belongs to another profile.`)
+        return bad(
+          other && other.ownerEmail === addr
+            ? `${addr} already has their own kitchen. They'd need to delete it first.`
+            : `${addr} is already collaborating on another kitchen.`
+        )
       }
 
-      profile.members.push({ email: addr, role: 'member', addedAt: new Date().toISOString() })
+      profile.collaborator = { email: addr, addedAt: new Date().toISOString() }
       await writeJSON(stores.profiles(), profile.id, profile)
-      await writeJSON(stores.emailIndex(), addr, { profileId: profile.id, role: 'member' })
-      await logEvent({ req, user, action: 'profile-add-member', message: `Linked ${addr}` })
+      await writeJSON(stores.emailIndex(), addr, { profileId: profile.id, role: 'collaborator' })
+      await logEvent({ req, user, action: 'collaborator-add', message: `${addr} joined ${profile.id}` })
       return ok({ profile })
     }
 
-    // ---- Remove a member (owner only) ----
-    if (req.method === 'DELETE' && seg === 'members') {
-      if (!isOwner) return forbidden()
-      const { email } = await req.json()
-      const addr = (email || '').toLowerCase().trim()
-      if (addr === profile.ownerEmail) return bad("The owner can't be removed.")
-      profile.members = profile.members.filter((m) => m.email !== addr)
+    // ---- Remove the collaborator (owner removes, or they leave) ----
+    if (req.method === 'DELETE' && seg === 'collaborator') {
+      if (!profile.collaborator) return bad('No collaborator to remove.')
+      const leaving = profile.collaborator.email
+      if (!isOwner && user.email !== leaving) return forbidden()
+
+      profile.collaborator = null
       await writeJSON(stores.profiles(), profile.id, profile)
-      await stores.emailIndex().delete(addr)
-      return ok({ profile })
+      await stores.emailIndex().delete(leaving)
+      await logEvent({ req, user, action: 'collaborator-remove', message: `${leaving} left ${profile.id}` })
+      return ok({ profile, left: !isOwner })
     }
 
     // ---- Update preferred stores / display fields ----
     if (req.method === 'PUT' && seg === 'profile') {
       const body = await req.json()
+      if (!isOwner && (body.displayName !== undefined || body.zip !== undefined)) return forbidden()
       if (body.displayName) profile.displayName = body.displayName.trim()
       if (body.zip !== undefined) profile.zip = String(body.zip || '').trim()
       if (Array.isArray(body.preferredStores)) profile.preferredStores = body.preferredStores
@@ -110,8 +111,9 @@ export default async (req) => {
     // ---- Delete the whole profile (owner only) ----
     if (req.method === 'DELETE' && seg === 'profile') {
       if (!isOwner) return forbidden()
-      // Unlink every member, remove owned recipes + shopping lists, then the profile.
-      for (const m of profile.members) await stores.emailIndex().delete(m.email)
+      // Unlink the account, remove its recipes + shopping lists, then the profile.
+      await stores.emailIndex().delete(profile.ownerEmail)
+      if (profile.collaborator) await stores.emailIndex().delete(profile.collaborator.email)
       const recipes = await listAll(stores.recipes())
       for (const r of recipes.filter((r) => r.profileId === profile.id)) {
         await stores.recipes().delete(r.id)

@@ -1,4 +1,4 @@
-// Thin wrapper over Netlify Blobs — this is ForkCast's data store, so all app
+// Thin wrapper over Netlify Blobs — this is RAIning Recipes's data store, so all app
 // data lives "within Netlify" as the requirements ask. Each logical table is a
 // named store; records are JSON blobs keyed by id.
 import { getStore } from '@netlify/blobs'
@@ -11,6 +11,7 @@ export const stores = {
   receiptItems: () => getStore('receipt-items'), // shared price DB (food only)
   pantry: () => getStore('pantry'),            // profileId -> { items: [...] }
   priceCache: () => getStore('price-cache'),   // cached AI price estimates (TTL)
+  listShares: () => getStore('list-shares'),   // token -> emailed shopping list share
   logs: () => getStore('logs'),                // logId -> LogEntry
 }
 

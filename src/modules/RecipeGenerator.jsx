@@ -4,7 +4,9 @@ import { api } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, RecipeIcon } from '../components/ui.jsx'
-import { stamp, DEFAULT_TOOLS, NUTRITION_GOALS, DIET_PLANS } from '../lib/util.js'
+import IngredientHelp from '../components/IngredientHelp.jsx'
+import StepUses from '../components/StepUses.jsx'
+import { stamp, money, DEFAULT_TOOLS, NUTRITION_GOALS, DIET_PLANS } from '../lib/util.js'
 
 const DEFAULT_PREFS = {
   people: 4,
@@ -87,19 +89,50 @@ export default function RecipeGenerator() {
   const [saving, setSaving] = useState(false)
   const [command, setCommand] = useState('')
   const [history, setHistory] = usePersistentState('gen.history', [])
+  const [suggestions, setSuggestions] = usePersistentState('gen.suggestions', null)
+  const [cost, setCost] = usePersistentState('gen.cost', null)
+  const [picking, setPicking] = useState(null)  // index being expanded
 
+  // Step 1: cheap idea list. If the ask is specific the model returns one or two,
+  // and we skip straight to writing it rather than making the cook pick from a list of one.
   const generate = async () => {
     if (!whatToCook.trim()) { setError('Tell me what you want to cook.'); return }
-    setError(''); setBusy(true); setRecipe(null); setSavedId(null); setHistory([])
+    setError(''); setBusy(true); setRecipe(null); setSavedId(null); setHistory([]); setSuggestions(null); setCost(null)
     try {
-      const { recipes } = await api.generateRecipes({
-        count: 1,
+      const { suggestions: list } = await api.suggestRecipes(whatToCook.trim(), prefs, pantry)
+      if (!list?.length) { setError('No ideas came back — try describing it differently.'); return }
+      if (list.length === 1) { await pick(list[0], 0); return }
+      setSuggestions(list)
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  // Step 2: write the full recipe for the idea they chose.
+  const pick = async (suggestion, idx) => {
+    setError(''); setPicking(idx); setHistory([]); setSavedId(null)
+    try {
+      const { recipe: full } = await api.generateRecipes({
         whatToCook: whatToCook.trim(),
+        pick: suggestion,
         prefs,
         pantryItems: pantry,
       })
-      setRecipe(recipes[0])
-    } catch (e) { setError(e.message) } finally { setBusy(false) }
+      setRecipe(full)
+      setSuggestions(null)
+      priceRecipe(full)
+    } catch (e) { setError(e.message) } finally { setPicking(null) }
+  }
+
+  // Price the recipe from the price database (+ ZIP estimates), not by asking
+  // the model to guess a dollar figure. Runs in the background — a slow or
+  // failed estimate must never block showing the recipe.
+  const priceRecipe = async (r) => {
+    setCost({ loading: true })
+    try {
+      const c = await api.recipeCost(r)
+      setCost(c)
+    } catch {
+      setCost(null)
+    }
   }
 
   // Corrections continue this recipe's own conversation.
@@ -115,6 +148,7 @@ export default function RecipeGenerator() {
       }
       const { recipe: revised } = await api.reviseRecipe(recipe, cmd)
       setRecipe(revised)
+      priceRecipe(revised)
       setHistory((h) => [...h, cmd])
       setCommand('')
       setSavedId(null) // it's no longer the version that was saved
@@ -132,7 +166,7 @@ export default function RecipeGenerator() {
 
   const saveAndBuildList = async () => {
     const saved = await save()
-    if (saved) navigate('/shopping', { state: { recipeIds: [saved.id], autoGenerate: true } })
+    if (saved) navigate('/list', { state: { recipeIds: [saved.id], autoGenerate: true } })
   }
 
   const selectedDiet = [...prefs.nutrition, ...prefs.diets]
@@ -147,7 +181,7 @@ export default function RecipeGenerator() {
     <div>
       <div className="section-title">Recipe Generator</div>
       <h1 className="page-h">What's cooking?</h1>
-      <p className="page-sub">Tell ForkCast what you're in the mood for. Your kitchen setup is remembered and applied every time.</p>
+      <p className="page-sub">Tell RAIning Recipes what you're in the mood for. Your kitchen setup is remembered and applied every time.</p>
 
       {error && <Banner kind="error">{error}</Banner>}
 
@@ -182,7 +216,7 @@ export default function RecipeGenerator() {
         </div>
 
         <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={generate} disabled={busy}>
-          {busy ? <><Spinner /> Designing your recipe…</> : 'Generate recipe'}
+          {busy ? <><Spinner /> Thinking up ideas…</> : 'Get recipe ideas'}
         </button>
       </div>
 
@@ -224,16 +258,12 @@ export default function RecipeGenerator() {
         {kitchenOpen && (
           <div style={{ marginTop: 14 }}>
             <p className="muted" style={{ fontSize: 13, margin: '0 0 14px' }}>
-              Applied to every recipe, for everyone on this family profile.
+              Applied to every recipe you generate.
             </p>
 
             <div className="field">
               <label className="label">How many people are you feeding?</label>
-              <input
-                className="input" type="number" min="1" max="30" style={{ width: 110 }}
-                value={prefs.people}
-                onChange={(e) => set({ people: Math.max(1, Number(e.target.value) || 1) })}
-              />
+              <PeopleInput value={prefs.people} onChange={(n) => set({ people: n })} />
             </div>
 
             <ChipPicker
@@ -286,12 +316,50 @@ export default function RecipeGenerator() {
         )}
       </div>
 
+      {/* --- Suggestions --- */}
+      {suggestions?.length > 0 && !recipe && (
+        <>
+          <div className="divider-label">
+            {suggestions.length} idea{suggestions.length !== 1 ? 's' : ''} — pick one
+          </div>
+          <div className="stack">
+            {suggestions.map((sg, i) => (
+              <button
+                key={i}
+                onClick={() => pick(sg, i)}
+                disabled={picking !== null}
+                className="card"
+                style={{ textAlign: 'left', cursor: 'pointer', width: '100%', border: '1px solid var(--line)' }}
+              >
+                <div className="row-between" style={{ gap: 10 }}>
+                  <strong style={{ fontFamily: 'var(--display)', fontSize: 17 }}>{sg.name}</strong>
+                  {picking === i
+                    ? <Spinner />
+                    : <span className="linklike" style={{ flexShrink: 0 }}>see recipe →</span>}
+                </div>
+                <p className="muted" style={{ margin: '4px 0 0', fontSize: 13.5 }}>{sg.summary}</p>
+                <div className="recipe-meta">
+                  {sg.cuisine && <span className="tag">{sg.cuisine}</span>}
+                  {sg.tool && <span className="tag">{sg.tool}</span>}
+                  {sg.estimatedTimeMinutes && <span className="tag">{sg.estimatedTimeMinutes} min</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-ghost btn-block" style={{ marginTop: 14 }} onClick={() => setSuggestions(null)}>
+            None of these — start over
+          </button>
+        </>
+      )}
+
       {/* --- Result --- */}
       {recipe && (
         <>
           <div className="divider-label">Your recipe</div>
           <RecipeResult
             r={recipe}
+            pantry={pantry}
+            cost={cost}
             saved={!!savedId}
             history={history}
             command={command}
@@ -309,7 +377,7 @@ export default function RecipeGenerator() {
             </button>
             <button
               className="btn btn-ghost"
-              onClick={() => { setRecipe(null); setSavedId(null); setHistory([]); setCommand(''); setError('') }}
+              onClick={() => { setRecipe(null); setSavedId(null); setHistory([]); setCommand(''); setError(''); setSuggestions(null); setCost(null) }}
               disabled={saving}
             >
               Start over
@@ -423,7 +491,8 @@ function ExclusionList({ values, onAdd, onRemove, onClear }) {
   )
 }
 
-function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise }) {
+function RecipeResult({ r, pantry = [], cost, saved, history, command, busy, onCommand, onRevise }) {
+  const [helpFor, setHelpFor] = useState(null)   // "buy-2" / "have-0"
   const toBuy = (r.ingredients || []).filter((i) => !i.have)
   const have = (r.ingredients || []).filter((i) => i.have)
 
@@ -443,6 +512,13 @@ function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise })
             <span className="tag">{r.estimatedTimeMinutes} min</span>
             <span className="tag">Serves {r.servings}</span>
             {toBuy.length === 0 && <span className="tag" style={{ background: 'rgba(59,122,87,0.15)', color: 'var(--basil)' }}>All from pantry</span>}
+            {cost?.loading && <span className="tag">pricing…</span>}
+            {cost && !cost.loading && cost.total > 0 && (
+              <span className="tag cost" title={`Priced from ${Math.round((cost.coverage || 0) * 100)}% of the shopping list`}>
+                {cost.confidence === 'good' ? '' : '~'}{money(cost.total)}
+                {cost.perServing ? ` · ${money(cost.perServing)}/serving` : ''}
+              </span>
+            )}
           </div>
           <div className="timestamp" style={{ marginTop: 6 }}>Generated {stamp(r.generatedAt)}</div>
         </div>
@@ -450,6 +526,13 @@ function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise })
 
       {r.highlights && (
         <div className="banner warn" style={{ marginTop: 12, marginBottom: 0 }}>✨ {r.highlights}</div>
+      )}
+
+      {cost && !cost.loading && cost.total > 0 && cost.confidence !== 'good' && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          Rough estimate — only {Math.round((cost.coverage || 0) * 100)}% of the shopping ingredients have a known price.
+          Scan a few receipts and it sharpens up.
+        </div>
       )}
 
       <details style={{ marginTop: 12 }} open>
@@ -460,25 +543,38 @@ function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise })
           {toBuy.length > 0 && (
             <>
               <strong style={{ fontSize: 14 }}>You'll need to buy</strong>
-              <ul style={{ margin: '6px 0 14px', paddingLeft: 18 }}>
-                {toBuy.map((ing, k) => <li key={k} style={{ marginBottom: 3 }}>{ing.quantity} {ing.item}</li>)}
-              </ul>
+              <div style={{ margin: '6px 0 14px' }}>
+                {toBuy.map((ing, k) => (
+                  <IngredientRow
+                    key={k} ing={ing} recipe={r} pantry={pantry}
+                    open={helpFor === `buy-${k}`}
+                    onToggle={() => setHelpFor(helpFor === `buy-${k}` ? null : `buy-${k}`)}
+                  />
+                ))}
+              </div>
             </>
           )}
           {have.length > 0 && (
             <>
               <strong className="basil" style={{ fontSize: 14 }}>Already in your pantry</strong>
-              <ul className="muted" style={{ margin: '6px 0 14px', paddingLeft: 18 }}>
-                {have.map((ing, k) => <li key={k} style={{ marginBottom: 3 }}>{ing.quantity} {ing.item}</li>)}
-              </ul>
+              <div style={{ margin: '6px 0 14px' }}>
+                {have.map((ing, k) => (
+                  <IngredientRow
+                    key={k} ing={ing} recipe={r} pantry={pantry}
+                    open={helpFor === `have-${k}`}
+                    onToggle={() => setHelpFor(helpFor === `have-${k}` ? null : `have-${k}`)}
+                  />
+                ))}
+              </div>
             </>
           )}
           <strong style={{ fontSize: 14 }}>Steps</strong>
           <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>
             {r.steps.map((s) => (
-              <li key={s.n} style={{ marginBottom: 8 }}>
+              <li key={s.n} style={{ marginBottom: 10 }}>
                 {s.text}
-                {s.note && <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>⏱ While you wait: {s.note}</div>}
+                <StepUses uses={s.uses} ingredients={r.ingredients} />
+                {s.note && <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>⏱ While you wait: {s.note}</div>}
               </li>
             ))}
           </ol>
@@ -503,6 +599,61 @@ function RecipeResult({ r, saved, history, command, busy, onCommand, onRevise })
         </button>
       </div>
       <div className="hint">Corrections build on this recipe — it keeps the original dish and your earlier changes.</div>
+    </div>
+  )
+}
+
+// A number field you can actually clear. The old version ran
+// Math.max(1, Number(value) || 1) on every keystroke, so deleting the last digit
+// instantly snapped it back to 1 — you could never type a fresh number. Keep the
+// raw string while editing, and only clamp when focus leaves.
+function PeopleInput({ value, onChange }) {
+  const [draft, setDraft] = useState(String(value ?? ''))
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <input
+      className="input"
+      type="number"
+      min="1"
+      max="30"
+      style={{ width: 110 }}
+      value={editing ? draft : String(value ?? '')}
+      onFocus={() => { setDraft(String(value ?? '')); setEditing(true) }}
+      onChange={(e) => {
+        const raw = e.target.value
+        setDraft(raw)                       // let the field be empty mid-edit
+        const n = parseInt(raw, 10)
+        if (Number.isFinite(n) && n >= 1) onChange(Math.min(n, 30))
+      }}
+      onBlur={() => {
+        setEditing(false)
+        const n = parseInt(draft, 10)
+        onChange(Number.isFinite(n) && n >= 1 ? Math.min(n, 30) : 1)  // clamp only on exit
+      }}
+    />
+  )
+}
+
+// One ingredient line. Tapping opens substitutions / questions for it.
+function IngredientRow({ ing, recipe, pantry, open, onToggle }) {
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <button
+        onClick={onToggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+          background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer',
+          color: 'inherit', fontSize: 14.5,
+        }}
+      >
+        <span style={{ color: 'var(--saffron-deep)', fontSize: 11 }}>{open ? '▾' : '▸'}</span>
+        <span style={{ flex: 1 }}>{ing.quantity} {ing.item}</span>
+        <span className="linklike" style={{ fontSize: 12, flexShrink: 0 }}>swap / ask</span>
+      </button>
+      {open && (
+        <IngredientHelp recipe={recipe} ingredient={ing} pantryItems={pantry} onClose={onToggle} />
+      )}
     </div>
   )
 }
