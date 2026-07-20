@@ -155,3 +155,84 @@ export function normalizeCategory(s) {
   if (/(pasta|spaghetti|macaroni|penne|ramen|noodle|rice|grain|cereal|dry goods|pantry|oats|lentil|quinoa|couscous|barley)/.test(t)) return 'Pantry & Dry Goods'
   return PANTRY_CATEGORIES.includes(s) ? s : 'Other'
 }
+
+// --- Scaling a recipe to a different number of people -----------------------
+// Multiplies the numeric part of a quantity while leaving the unit alone.
+// Handles "2", "2.5 lbs", "1 1/2 cups", "½ tsp", "2-3 cloves", and text-only
+// amounts like "a pinch" (which stay as they are — a pinch doesn't double).
+
+const VULGAR = { '½': 0.5, '⅓': 1/3, '⅔': 2/3, '¼': 0.25, '¾': 0.75, '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875 }
+
+// Turn an awkward decimal back into a cook-friendly fraction.
+function pretty(n) {
+  if (!isFinite(n) || n <= 0) return ''
+  const rounded = Math.round(n * 100) / 100
+  const whole = Math.floor(rounded)
+  const frac = rounded - whole
+  const table = [[1/8,'1/8'], [1/4,'1/4'], [1/3,'1/3'], [1/2,'1/2'], [2/3,'2/3'], [3/4,'3/4'], [7/8,'7/8']]
+  for (const [val, label] of table) {
+    if (Math.abs(frac - val) < 0.04) return whole ? `${whole} ${label}` : label
+  }
+  if (frac < 0.04) return String(whole)
+  // Not near a nice fraction — one decimal reads better than two.
+  return String(Math.round(rounded * 10) / 10)
+}
+
+export function scaleQuantity(text, factor) {
+  const raw = String(text ?? '').trim()
+  if (!raw || !isFinite(factor) || factor <= 0) return raw
+  if (Math.abs(factor - 1) < 0.001) return raw
+
+  let s = raw
+  for (const [glyph, val] of Object.entries(VULGAR)) s = s.split(glyph).join(` ${val} `)
+
+  // Range ("2-3 lbs"): scale both ends so it stays a range.
+  const range = s.match(/(\d*\.?\d+)\s*(?:-|–|to)\s*(\d*\.?\d+)/)
+  if (range) {
+    const lo = pretty(Number(range[1]) * factor)
+    const hi = pretty(Number(range[2]) * factor)
+    return s.replace(range[0], `${lo}-${hi}`).replace(/\s+/g, ' ').trim()
+  }
+
+  // Mixed number ("1 1/2 cups")
+  const mixed = s.match(/(\d+)\s+(\d+)\s*\/\s*(\d+)/)
+  if (mixed) {
+    const val = (Number(mixed[1]) + Number(mixed[2]) / Number(mixed[3])) * factor
+    return s.replace(mixed[0], pretty(val)).replace(/\s+/g, ' ').trim()
+  }
+
+  // Plain fraction ("1/2 cup")
+  const frac = s.match(/(\d+)\s*\/\s*(\d+)/)
+  if (frac) {
+    const val = (Number(frac[1]) / Number(frac[2])) * factor
+    return s.replace(frac[0], pretty(val)).replace(/\s+/g, ' ').trim()
+  }
+
+  // Plain number
+  const num = s.match(/(\d*\.?\d+)/)
+  if (num) {
+    return s.replace(num[0], pretty(Number(num[1]) * factor)).replace(/\s+/g, ' ').trim()
+  }
+
+  // No number at all ("a pinch", "to taste") — leave it be.
+  return raw
+}
+
+// Rewrite a whole recipe for a new serving count, including the per-step amounts.
+export function scaleRecipe(recipe, newServings) {
+  const from = Number(recipe.servings) || 1
+  const to = Number(newServings) || from
+  const factor = to / from
+  if (!isFinite(factor) || factor <= 0 || factor === 1) return { ...recipe, servings: to }
+
+  return {
+    ...recipe,
+    servings: to,
+    ingredients: (recipe.ingredients || []).map((i) => ({ ...i, quantity: scaleQuantity(i.quantity, factor) })),
+    steps: (recipe.steps || []).map((s) => ({
+      ...s,
+      uses: (s.uses || []).map((u) => ({ ...u, amount: scaleQuantity(u.amount, factor) })),
+    })),
+    scaledFrom: recipe.scaledFrom || { servings: from },
+  }
+}

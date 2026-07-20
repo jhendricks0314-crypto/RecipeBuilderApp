@@ -14,6 +14,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/favicon.svg', 'icons/apple-touch-icon.png'],
       manifest: {
+        // An explicit, stable id. Chrome keys an installed app by this; it
+        // defaults to start_url, so '/' matches existing installs and keeps
+        // the update path intact for anyone who already installed the app.
+        id: '/',
         name: 'RAIning Recipes — plan, cook, spend smart',
         short_name: 'RAIning Recipes',
         description:

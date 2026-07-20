@@ -198,6 +198,25 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
   background: var(--ink); color: var(--paper); padding: 12px 18px; border-radius: 999px; box-shadow: var(--shadow-lg);
   font-weight: 600; font-size: 14px; max-width: 90vw; }
 
+/* favourite star — deliberately large so it's an easy tap target */
+.fav-star {
+  background: none; border: none; cursor: pointer; padding: 0;
+  flex-shrink: 0; font-size: 30px; line-height: 0.9; margin-top: -2px;
+  transition: transform .12s ease, color .12s ease;
+}
+.fav-star:hover { transform: scale(1.12); }
+.fav-star:active { transform: scale(0.94); }
+
+/* install prompt */
+.install-prompt {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--nav-h) + 18px); z-index: 62;
+  background: var(--card); color: var(--ink);
+  border: 1.5px solid var(--saffron); border-radius: 16px;
+  padding: 14px 16px; box-shadow: var(--shadow-lg);
+  width: min(420px, calc(100vw - 32px));
+}
+
 /* update prompt */
 .update-prompt { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + 18px); z-index: 61;
   background: var(--saffron); color: var(--ink); padding: 10px 12px 10px 18px; border-radius: 999px; box-shadow: var(--shadow-lg);

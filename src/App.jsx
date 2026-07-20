@@ -3,6 +3,7 @@ import { useAuth } from './lib/auth.jsx'
 import { Loading } from './components/ui.jsx'
 import Layout from './components/Layout.jsx'
 import UpdatePrompt from './components/UpdatePrompt.jsx'
+import InstallPrompt from './components/InstallPrompt.jsx'
 
 import Login from './modules/Login.jsx'
 import Onboarding from './modules/Onboarding.jsx'
@@ -51,6 +52,7 @@ export default function App() {
         )}
       </Routes>
       {user && <UpdatePrompt />}
+      {user && <InstallPrompt />}
     </>
   )
 }

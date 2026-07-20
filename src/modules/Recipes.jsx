@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
 import { Banner, Loading, Empty, RecipeIcon, Stars, Modal, Spinner, Toast } from '../components/ui.jsx'
-import { stamp, fromNow, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
+import { stamp, fromNow, scaleRecipe, CUISINES, TOOLS, TIMES, AUDIENCES } from '../lib/util.js'
 import StepUses from '../components/StepUses.jsx'
 import { usePersistentState } from '../lib/persist.jsx'
 import IngredientHelp from '../components/IngredientHelp.jsx'
@@ -199,17 +199,17 @@ export default function Recipes() {
                   )}
                   <RecipeIcon recipe={r} />
                   <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => !selecting && setOpenId(r.id)}>
-                    <div className="row-between" style={{ gap: 8 }}>
-                      <h3 className="recipe-title">{r.name}</h3>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                       <button
                         onClick={(e) => toggleFavorite(r, e)}
                         title={r.favorite ? 'Remove from favourites' : 'Add to favourites'}
                         aria-pressed={!!r.favorite}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0,
-                                 fontSize: 20, lineHeight: 1, color: r.favorite ? 'var(--saffron)' : 'var(--line)' }}
+                        className="fav-star"
+                        style={{ color: r.favorite ? 'var(--saffron)' : 'var(--line)' }}
                       >
                         {r.favorite ? '★' : '☆'}
                       </button>
+                      <h3 className="recipe-title" style={{ flex: 1, minWidth: 0 }}>{r.name}</h3>
                     </div>
                     <p className="muted" style={{ margin: '3px 0 0', fontSize: 13.5 }}>{r.summary}</p>
                     <div className="recipe-meta">
@@ -262,6 +262,39 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
   const [stepComment, setStepComment] = useState({})
   const [editingSteps, setEditingSteps] = useState(false)
   const [ingHelp, setIngHelp] = useState(null)
+  const [reviseCmd, setReviseCmd] = useState('')
+  const [revising, setRevising] = useState(false)
+  const [reviseError, setReviseError] = useState('')
+
+  // Continue this recipe's own conversation, then save the result over it.
+  const doRevise = async () => {
+    const cmd = reviseCmd.trim()
+    if (!cmd) return
+    setRevising(true); setReviseError('')
+    try {
+      const check = await api.validateCommand(cmd)
+      if (!check.related) {
+        setReviseError(`That isn't about the recipe: ${check.reason || 'try something food-related.'}`)
+        return
+      }
+      const { recipe: revised } = await api.reviseRecipe(recipe, cmd)
+      onChange({
+        ...revised,
+        id: recipe.id,
+        favorite: recipe.favorite,
+        rating: recipe.rating,
+        photos: recipe.photos,
+        comments: recipe.comments,
+        revisions: [...(recipe.revisions || []), cmd],
+      })
+      setReviseCmd('')
+      flash('Recipe updated')
+    } catch (e) {
+      setReviseError(e.message)
+    } finally {
+      setRevising(false)
+    }
+  }
   const [commentingStep, setCommentingStep] = useState(null)
   const fileRef = useState(null)
 
@@ -310,6 +343,35 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
         </div>
       </div>
 
+      {/* Cooking for a different number tonight — rescale every quantity. */}
+      <hr className="perf" />
+      <div className="row-between">
+        <span className="label" style={{ margin: 0 }}>Cooking for</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            className="btn btn-ghost btn-sm" style={{ padding: '4px 13px', fontSize: 17, lineHeight: 1 }}
+            disabled={(recipe.servings || 1) <= 1}
+            onClick={() => onChange(scaleRecipe(recipe, (recipe.servings || 1) - 1))}
+            aria-label="One fewer serving"
+          >−</button>
+          <span className="mono" style={{ fontWeight: 700, minWidth: 68, textAlign: 'center' }}>
+            {recipe.servings} {recipe.servings === 1 ? 'person' : 'people'}
+          </span>
+          <button
+            className="btn btn-ghost btn-sm" style={{ padding: '4px 13px', fontSize: 17, lineHeight: 1 }}
+            disabled={(recipe.servings || 1) >= 50}
+            onClick={() => onChange(scaleRecipe(recipe, (recipe.servings || 1) + 1))}
+            aria-label="One more serving"
+          >+</button>
+        </div>
+      </div>
+      {recipe.scaledFrom && recipe.scaledFrom.servings !== recipe.servings && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          Rescaled from the original {recipe.scaledFrom.servings}-person version.
+        </div>
+      )}
+
+      <hr className="perf" />
       <div className="row-between">
         <span className="label" style={{ margin: 0 }}>Your rating</span>
         <Stars value={recipe.rating || 0} onChange={(rating) => onChange({ rating })} />
@@ -433,6 +495,27 @@ function RecipeDetail({ recipe, onClose, onChange, onShare, onDelete, onBuildLis
         <input className="input" placeholder="e.g. Doubled the garlic, was perfect" value={recipeComment} onChange={(e) => setRecipeComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addRecipeComment()} />
         <button className="btn btn-ghost" onClick={addRecipeComment}>Add</button>
       </div>
+
+      {/* Refine a saved recipe by chat, exactly like the generator. */}
+      <hr className="perf" />
+      <span className="label">Refine this recipe</span>
+      {(recipe.revisions || []).length > 0 && (
+        <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>
+          {recipe.revisions.map((h, k) => <div key={k}>↳ {h}</div>)}
+        </div>
+      )}
+      {reviseError && <Banner kind="error">{reviseError}</Banner>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          className="input" placeholder='e.g. "make it dairy free" or "less salt"'
+          value={reviseCmd} onChange={(e) => setReviseCmd(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && doRevise()}
+        />
+        <button className="btn btn-ghost" onClick={doRevise} disabled={revising || !reviseCmd.trim()}>
+          {revising ? <Spinner /> : 'Revise'}
+        </button>
+      </div>
+      <div className="hint">Updates the saved recipe, keeping the same dish and your earlier changes.</div>
 
       <hr className="perf" />
       <div className="btn-row">
