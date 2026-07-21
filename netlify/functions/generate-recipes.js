@@ -187,21 +187,36 @@ export default async (req) => {
       if (!prev) return bad('Nothing to revise.')
       if (!command) return bad('Tell me what to change.')
 
-      const thread = Array.isArray(prev.thread) && prev.thread.length
-        ? prev.thread
-        : [
-            { role: 'user', content: `Create this recipe: ${prev.name}. ${prev.summary || ''}` },
-            { role: 'assistant', content: JSON.stringify(stripForThread(prev)) },
-          ]
+      // Compact context, not a growing transcript.
+      //
+      // The thread used to accumulate every past exchange, so each correction
+      // resent the full recipe JSON again — by the third or fourth revision the
+      // input was large enough that the request blew past Netlify's function
+      // timeout and returned a 504.
+      //
+      // It was never necessary: the CURRENT recipe already has every earlier
+      // correction baked into it. So we send the original ask, the recipe as it
+      // stands now, a short list of what's already been changed, and the new
+      // correction. Bounded size, however many times it's revised.
+      const origin = prev.originalRequest || `Create this recipe: ${prev.name}. ${prev.summary || ''}`
+      const history = (prev.revisions || []).slice(-6)
 
       const messages = [
-        ...thread,
-        { role: 'user', content: `Correction: ${command}\n\nApply this to the recipe above and return the complete updated recipe as JSON.` },
+        { role: 'user', content: origin },
+        { role: 'assistant', content: JSON.stringify(stripForThread(prev)) },
+        {
+          role: 'user',
+          content:
+            (history.length ? `Changes already applied: ${history.join('; ')}.\n\n` : '') +
+            `Correction: ${command}\n\nApply this to the recipe above and return the complete updated recipe as JSON.`,
+        },
       ]
 
-      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 8000, messages })
+      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 5000, messages })
       const recipe = shape(Array.isArray(revised) ? revised[0] : revised, user, prev)
-      recipe.thread = [...messages, { role: 'assistant', content: JSON.stringify(stripForThread(recipe)) }]
+      recipe.originalRequest = origin
+      recipe.revisions = [...(prev.revisions || []), command]
+      delete recipe.thread   // superseded by originalRequest + revisions
       return ok({ recipe })
     }
 
@@ -244,16 +259,14 @@ The cook originally asked for: "${what}". Stay true to the dish named above.` + 
 
     const recipes = await claudeJSON({
       system: GEN_SYSTEM,
-      maxTokens: 8000,
+      maxTokens: 5000,
       messages: [{ role: 'user', content: userPrompt }],
     })
 
     const shaped = (Array.isArray(recipes) ? recipes : [recipes]).map((r) => {
       const rec = shape(r, user, null)
-      rec.thread = [
-        { role: 'user', content: userPrompt },
-        { role: 'assistant', content: JSON.stringify(stripForThread(rec)) },
-      ]
+      rec.originalRequest = userPrompt   // all a revision needs, alongside the recipe itself
+      rec.revisions = []
       return rec
     })
 

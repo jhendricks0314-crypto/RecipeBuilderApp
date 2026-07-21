@@ -7,26 +7,51 @@ export function hasClaude() {
   return !!process.env.ANTHROPIC_API_KEY
 }
 
-export async function claude({ system, messages, maxTokens = 4000, model }) {
+// Netlify's synchronous functions are killed at 10s (26s max on Pro). If we let
+// a slow generation run past that, the platform returns a bare 504 with no
+// explanation. Bailing out just short of the limit lets us say what happened.
+const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 9000
+
+export async function claude({ system, messages, maxTokens = 4000, model, timeoutMs }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     const e = new Error('ANTHROPIC_API_KEY is not configured')
     e.code = 'NO_API_KEY'
     throw e
   }
-  const res = await fetch(API, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-      max_tokens: maxTokens,
-      system,
-      messages,
-    }),
-  })
+  const controller = new AbortController()
+  const limit = timeoutMs || TIMEOUT_MS
+  const timer = setTimeout(() => controller.abort(), limit)
+
+  let res
+  try {
+    res = await fetch(API, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+        max_tokens: maxTokens,
+        system,
+        messages,
+      }),
+      signal: controller.signal,
+    })
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const e = new Error(
+        `That took longer than ${Math.round(limit / 1000)}s and was stopped so it wouldn't hang. ` +
+        'Try a simpler request, or raise your Netlify function timeout (Pro plans allow 26s).'
+      )
+      e.code = 'CLAUDE_TIMEOUT'
+      throw e
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
   if (!res.ok) {
     const text = await res.text()
     let detail = text.slice(0, 300)

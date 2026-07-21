@@ -127,6 +127,20 @@ automated querying. That gate can't be honestly automated, and shouldn't be.
 
 Steps 1 and 3 are fully automated. Only the captcha is on you.
 
+## If you see a 504 on generation
+
+Netlify kills synchronous functions at **10 seconds** (raisable to 26s on Pro
+plans, on request). AI generation can exceed that, so:
+
+- Requests abort just under the limit and return a readable message rather than
+  a bare 504. Tune with `CLAUDE_TIMEOUT_MS`.
+- Revisions send **compact context** — the current recipe plus a short list of
+  changes already applied — instead of replaying the whole conversation. Earlier
+  builds resent the full recipe on every correction, so the request grew with each
+  revision until it timed out.
+- If you raise your Netlify timeout, raise `CLAUDE_TIMEOUT_MS` to match.
+- `claude-haiku-4-5` is markedly faster than Sonnet if you want more headroom.
+
 ## Honest notes on the tricky requirements
 
 A few requirements touch external services or techniques that don't have a clean, reliable, terms‑compliant implementation. Here's exactly how each is handled so there are no surprises:
