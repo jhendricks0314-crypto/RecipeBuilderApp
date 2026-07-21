@@ -136,9 +136,14 @@ the config alone does nothing.
 **1. Config (already in `netlify.toml`):**
 
 ```toml
-[functions]
+[functions."*"]
   timeout = 26
 ```
+
+Note the `."*"` — `timeout` has to sit inside a function-scope table. Putting it
+directly under `[functions]` makes Netlify read "timeout" as a function *name*
+and fail the build with *"Configuration property functions.timeout must be an
+object."* Run `npm run check:config` to validate the file before deploying.
 
 **2. Ask Netlify to activate it.** This is the part people miss: the setting is
 ignored until support enables the extended timeout for your specific site. Post

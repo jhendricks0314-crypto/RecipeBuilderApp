@@ -7,10 +7,11 @@
   "scripts": {
     "dev": "netlify dev",
     "dev:vite": "vite",
-    "build": "eslint netlify src scripts && vite build",
+    "build": "node scripts/check-config.mjs && eslint netlify src scripts && vite build",
     "preview": "vite preview",
     "gen:icons": "node scripts/gen-icons.mjs",
-    "lint": "eslint netlify src scripts"
+    "lint": "eslint netlify src scripts",
+    "check:config": "node scripts/check-config.mjs"
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@netlify/blobs": "^8.1.0",
+    "@netlify/config": "^25.1.1",
     "@netlify/functions": "^2.8.1",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^9.39.5",

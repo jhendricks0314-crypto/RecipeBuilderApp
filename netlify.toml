@@ -12,12 +12,15 @@
   # sharp ships native binaries; let Netlify include them for the image function.
   external_node_modules = ["sharp"]
 
-  # Synchronous functions are killed at 10s on Free/Personal. Pro allows up to 26s.
-  #
-  # NOTE: this line alone is not enough. Netlify also has to enable the extended
-  # timeout for the site — plenty of Pro users have `timeout = 26` set and still
-  # get cut off at 10s until support switches it on. See the README for the exact
-  # request to send. Once it's active, set CLAUDE_TIMEOUT_MS=25000 to match.
+
+# Synchronous functions are killed at 10s on Free/Personal plans; Pro allows 26s.
+# `timeout` has to sit inside a function-scope table — putting it directly under
+# [functions] makes Netlify read "timeout" as a function NAME and fail the build
+# with: Configuration property functions.timeout must be an object.
+#
+# This alone is not enough: Netlify must also enable the extended timeout for the
+# site (see README). Until they do, the platform still cuts off at 10s.
+[functions."*"]
   timeout = 26
 
 [dev]
