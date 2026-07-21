@@ -319,6 +319,7 @@ function PhotoIdentify({ onAdd, location, onClose }) {
 
   const [err, setErr] = useState('')
   const [camReady, setCamReady] = useState(false)
+  const [settling, setSettling] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [frames, setFrames] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -379,29 +380,64 @@ function PhotoIdentify({ onAdd, location, onClose }) {
     return items || []
   }
 
-  // Continuous sweep: one frame at a time (sequential, so requests never pile up).
+  // Continuous sweep with overlapping requests.
+  //
+  // Previously this waited for each frame to come back before grabbing the next,
+  // so a 2s round-trip plus a 1.2s pause meant one frame roughly every 3s — and
+  // a slow pan sampled the shelves too sparsely, which is why an item could be
+  // caught at one angle and missed at another. Keeping a few requests in flight
+  // samples several times more densely over the same sweep.
+  //
+  // To be clear about what this does and doesn't do: it can't make any single
+  // frame come back faster. It just stops the camera sitting idle while it waits.
+  const MAX_IN_FLIGHT = 3
+  const inFlight = useRef(0)
+
   const startScan = async () => {
     setErr(''); setScanning(true); scanningRef.current = true
+    inFlight.current = 0
+
     while (scanningRef.current) {
+      if (inFlight.current >= MAX_IN_FLIGHT) { await sleep(150); continue }
+
       const frame = grabFrame()
-      if (!frame) { await sleep(400); continue }
-      try {
-        const items = await identify(frame)
-        if (!scanningRef.current) break
-        merge(items)
-        setFrames((n) => n + 1)
-      } catch (e) {
-        // One bad frame shouldn't end the sweep.
-        if (!scanningRef.current) break
-        setErr(e.message)
-      }
-      await sleep(1200) // breathe between frames
+      if (!frame) { await sleep(300); continue }
+
+      inFlight.current++
+      // Deliberately not awaited — the loop keeps sampling while this resolves.
+      identify(frame)
+        .then((items) => {
+          if (!scanningRef.current) return
+          merge(items)
+          setFrames((n) => n + 1)
+        })
+        .catch((e) => {
+          // One bad frame shouldn't end the sweep.
+          if (scanningRef.current) setErr(e.message)
+        })
+        .finally(() => { inFlight.current-- })
+
+      await sleep(700) // pace the sampling; overlap covers the round-trip
     }
+
+    // Let anything still running finish so its findings aren't lost.
+    const deadline = Date.now() + 8000
+    while (inFlight.current > 0 && Date.now() < deadline) await sleep(120)
   }
 
-  const stopScan = () => {
+  const stopScan = async () => {
     scanningRef.current = false
     setScanning(false)
+
+    // Requests started just before you pressed stop are still coming back.
+    // Wait for them briefly so their findings aren't thrown away.
+    if (inFlight.current > 0) {
+      setSettling(true)
+      const deadline = Date.now() + 6000
+      while (inFlight.current > 0 && Date.now() < deadline) await sleep(120)
+      setSettling(false)
+    }
+
     const all = [...foundRef.current.values()].sort((a, b) => b.sightings - a.sightings)
     if (!all.length) { setErr('Nothing recognized. Try more light, or add by hand.'); return }
     setFound(all)
@@ -504,7 +540,9 @@ function PhotoIdentify({ onAdd, location, onClose }) {
                 {camReady ? '● Start scan' : err ? 'Camera unavailable' : 'Starting camera…'}
               </button>
             ) : (
-              <button className="btn btn-danger" onClick={stopScan}>■ Stop scan</button>
+              <button className="btn btn-danger" onClick={stopScan} disabled={settling}>
+                {settling ? <><Spinner /> Finishing…</> : '■ Stop scan'}
+              </button>
             )}
             {!scanning && (
               <>

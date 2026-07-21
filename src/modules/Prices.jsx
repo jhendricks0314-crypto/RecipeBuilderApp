@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { usePersistentState } from '../lib/persist.jsx'
+import { mapPool } from '../lib/pool.js'
 import { Banner, Loading, Empty, Toast, Modal, Spinner } from '../components/ui.jsx'
 import { money, fromNow } from '../lib/util.js'
 
@@ -260,29 +261,36 @@ function ReceiptPrice({ onClose, onSaved }) {
     setBusy(true); setError('')
     setProgress({ done: 0, total: files.length })
 
-    const all = []
-    const skipped = []
-    let firstStore = store
-    let firstDate = null
-    const failures = []
-
-    // Sequential: keeps requests orderly and lets us show real progress.
-    for (let i = 0; i < files.length; i++) {
-      try {
-        const dataUrl = await toBase64(files[i])
+    // Receipts are independent of each other, so read several at once rather
+    // than one after another. Three in flight keeps a folder of receipts quick
+    // without hammering the API.
+    const results = await mapPool(
+      files,
+      async (file) => {
+        const dataUrl = await toBase64(file)
         const [meta, b64] = dataUrl.split(',')
         const mediaType = meta.match(/data:(.*?);/)?.[1] || 'image/jpeg'
-        const d = await api.parseReceipt({ imageBase64: b64, mediaType, store: firstStore })
-        if (d.store && !firstStore) firstStore = d.store
-        if (d.date && !firstDate) firstDate = d.date
-        // Tag each row with the receipt it came from, so a batch stays reviewable.
-        for (const it of d.items || []) all.push({ ...it, _from: files[i].name, _store: d.store || firstStore, _date: d.date })
-        skipped.push(...(d.droppedNonFood || []))
-      } catch (err) {
-        failures.push(files[i].name)
-      }
-      setProgress({ done: i + 1, total: files.length })
-    }
+        const d = await api.parseReceipt({ imageBase64: b64, mediaType, store })
+        return { file, d }
+      },
+      { concurrency: 3, onProgress: (done, total) => setProgress({ done, total }) }
+    )
+
+    const all = []
+    const skipped = []
+    const failures = []
+    let firstStore = store
+    let firstDate = null
+
+    results.forEach((r, i) => {
+      if (!r?.ok) { failures.push(files[i].name); return }
+      const { file, d } = r.value
+      if (d.store && !firstStore) firstStore = d.store
+      if (d.date && !firstDate) firstDate = d.date
+      // Tag each row with the receipt it came from, so a batch stays reviewable.
+      for (const it of d.items || []) all.push({ ...it, _from: file.name, _store: d.store || firstStore, _date: d.date })
+      skipped.push(...(d.droppedNonFood || []))
+    })
 
     setBusy(false); setProgress(null)
     if (firstStore) setStore(firstStore)

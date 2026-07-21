@@ -2,7 +2,7 @@
 //
 // Two modes:
 //  1. SUGGEST   { suggest: true, whatToCook, prefs, pantryItems? }
-//     -> up to 10 ideas as {name, summary} only. Cheap and fast: the cook picks
+//     -> up to 5 ideas as {name, summary} only. Cheap and fast: the cook picks
 //        one before we spend tokens writing a full recipe. If the request is
 //        already specific ("chicken parmesan"), it returns just 1-2 — there's no
 //        point padding a precise ask with variations nobody wanted.
@@ -73,8 +73,8 @@ You are proposing recipe IDEAS, not writing recipes. Return an array of objects:
 - Honour every constraint given (tools, exclusions, diets, pantry rules) in every idea.
 
 How many to return depends on how specific the request is:
-- Vague or open ("something with chicken", "quick weeknight dinners") -> up to 10 varied ideas.
-- Moderately specific ("a chicken pasta bake") -> 3 to 5 sensible variations.
+- Vague or open ("something with chicken", "quick weeknight dinners") -> up to 5 varied ideas.
+- Moderately specific ("a chicken pasta bake") -> 2 to 4 sensible variations.
 - Precise ("chicken parmesan", "my grandmother's beef stew") -> 1 or 2. Do NOT pad it out.
 Return only as many genuinely distinct ideas as the request actually supports.`
 
@@ -262,7 +262,7 @@ Propose recipe ideas that fit.` + constraints(prefs, body.pantryItems)
       })
       const suggestions = (Array.isArray(raw) ? raw : [raw])
         .filter((x) => x && x.name)
-        .slice(0, 10)
+        .slice(0, 5)
         .map((x) => ({
           name: String(x.name),
           summary: String(x.summary || ''),
