@@ -184,7 +184,7 @@ export default async (req) => {
         { role: 'user', content: `Correction: ${command}\n\nApply this to the recipe above and return the complete updated recipe as JSON.` },
       ]
 
-      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 4000, messages })
+      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 8000, messages })
       const recipe = shape(Array.isArray(revised) ? revised[0] : revised, user, prev)
       recipe.thread = [...messages, { role: 'assistant', content: JSON.stringify(stripForThread(recipe)) }]
       return ok({ recipe })
@@ -200,7 +200,7 @@ Propose recipe ideas that fit.` + constraints(prefs, body.pantryItems)
 
       const raw = await claudeJSON({
         system: SUGGEST_SYSTEM,
-        maxTokens: 2000,
+        maxTokens: 4000,
         messages: [{ role: 'user', content: prompt }],
       })
       const suggestions = (Array.isArray(raw) ? raw : [raw])
@@ -229,7 +229,7 @@ The cook originally asked for: "${what}". Stay true to the dish named above.` + 
 
     const recipes = await claudeJSON({
       system: GEN_SYSTEM,
-      maxTokens: 4000,
+      maxTokens: 8000,
       messages: [{ role: 'user', content: userPrompt }],
     })
 
@@ -244,7 +244,7 @@ The cook originally asked for: "${what}". Stay true to the dish named above.` + 
 
     return ok({ recipes: shaped, recipe: shaped[0] })
   } catch (error) {
-    await logError({ req, user, action: 'generate-recipes', error })
-    return bad(error.code?.startsWith('CLAUDE_') ? error.message : 'Recipe generation failed. Please try again.', 500)
+    await logError({ req, user, action: 'generate-recipes', error, detail: error.detail || error.partial || null })
+    return bad(error.code ? error.message : `Recipe generation failed: ${error.message}`, 500)
   }
 }

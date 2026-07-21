@@ -52,17 +52,40 @@ export async function claude({ system, messages, maxTokens = 4000, model }) {
     throw e
   }
   const data = await res.json()
-  return data.content
+  const text = data.content
     .filter((b) => b.type === 'text')
     .map((b) => b.text)
     .join('\n')
     .trim()
+
+  // The single most common failure in production: the model ran out of room
+  // mid-JSON, so what comes back is valid text but unparseable. The API says so
+  // explicitly — catch it here rather than letting JSON.parse fail obscurely.
+  if (data.stop_reason === 'max_tokens') {
+    const e = new Error(
+      `The response was cut off at the ${maxTokens.toLocaleString()}-token limit, so it could not be read. ` +
+      'Try asking for something simpler, or raise the limit for this request.'
+    )
+    e.code = 'CLAUDE_TRUNCATED'
+    e.partial = text.slice(0, 400)
+    throw e
+  }
+  return text
 }
 
 // Ask Claude for JSON and parse it robustly (strips ``` fences / prose).
 export async function claudeJSON(opts) {
   const raw = await claude(opts)
-  return parseJSON(raw)
+  try {
+    return parseJSON(raw)
+  } catch (err) {
+    const e = new Error(
+      'The AI returned a response that could not be read as valid data. This is usually a one-off — please try again.'
+    )
+    e.code = 'CLAUDE_BADJSON'
+    e.detail = String(raw).slice(0, 400)
+    throw e
+  }
 }
 
 export function parseJSON(raw) {
