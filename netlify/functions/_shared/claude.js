@@ -16,10 +16,14 @@ export function hasClaude() {
   return !!process.env.ANTHROPIC_API_KEY
 }
 
-// Netlify's synchronous functions are killed at 10s (26s max on Pro). If we let
-// a slow generation run past that, the platform returns a bare 504 with no
-// explanation. Bailing out just short of the limit lets us say what happened.
-const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 9000
+// This is a FAST-PATH BUDGET, not a hard limit on how long work may take.
+//
+// The synchronous endpoint tries to answer in one round trip; if the model needs
+// longer than this, the request is abandoned and the client re-runs it on a
+// background function (15 min limit) instead. So keeping this short is good — it
+// fails over quickly rather than burning the full platform timeout first.
+// Anything under Netlify's limit works; 8s leaves room for the handoff.
+const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 8000
 
 export async function claude({ system, messages, maxTokens = 4000, model, timeoutMs }) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -50,10 +54,9 @@ export async function claude({ system, messages, maxTokens = 4000, model, timeou
     })
   } catch (err) {
     if (err.name === 'AbortError') {
-      const e = new Error(
-        `That took longer than ${Math.round(limit / 1000)}s and was stopped so it wouldn't hang. ` +
-        'Try a simpler request, or raise your Netlify function timeout (Pro plans allow 26s).'
-      )
+      // Phrased as a timeout so the client recognises it and retries in the
+      // background rather than showing this to the user.
+      const e = new Error(`Timed out after ${Math.round(limit / 1000)}s on the fast path.`)
       e.code = 'CLAUDE_TIMEOUT'
       throw e
     }

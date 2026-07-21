@@ -127,46 +127,33 @@ automated querying. That gate can't be honestly automated, and shouldn't be.
 
 Steps 1 and 3 are fully automated. Only the captcha is on you.
 
-## Function timeout (and what to do on Pro)
+## Long generations (how the timeout is handled)
 
-Netlify kills a synchronous function at **10 seconds** on Free and Personal
-plans. Pro raises the ceiling to **26 seconds**. Turning that on takes two steps —
-the config alone does nothing.
+Netlify kills synchronous functions at **10s** (26s on Pro). Recipe generation can
+exceed that, so the app doesn't rely on fitting inside it:
 
-**1. Config (already in `netlify.toml`):**
+1. **Fast path.** `/api/generate-recipes` tries to answer in one round trip,
+   with an 8s budget (`CLAUDE_TIMEOUT_MS`). Most requests finish here.
+2. **Background path.** If the fast path runs out of budget, the client re-runs
+   the identical request against `/api/generate-background` — a Netlify
+   **background function**, which gets **15 minutes** — and polls `/api/job`
+   until it's done. The button switches to "Still working…".
 
-```toml
-[functions."*"]
-  timeout = 26
-```
+Quick requests stay quick; slow ones just take longer instead of failing. Both
+paths call the same `_shared/generate-core.js`, so they can't drift apart.
 
-Note the `."*"` — `timeout` has to sit inside a function-scope table. Putting it
-directly under `[functions]` makes Netlify read "timeout" as a function *name*
-and fail the build with *"Configuration property functions.timeout must be an
-object."* Run `npm run check:config` to validate the file before deploying.
-
-**2. Ask Netlify to activate it.** This is the part people miss: the setting is
-ignored until support enables the extended timeout for your specific site. Post
-in the [Netlify support forum](https://answers.netlify.com/) with your site name
-and site ID (Site configuration → General → Site information):
-
-> I'm on the Pro plan and would like the synchronous function timeout raised to
-> the maximum 26 seconds for my site.
-> Site: YOUR-SITE.netlify.app — Site ID: YOUR-SITE-ID
-> The site proxies Anthropic Claude API calls for recipe generation, which can
-> take longer than 10 seconds. I already have `timeout = 26` in netlify.toml.
-
-**3. Then update the app** (Site settings → Environment variables):
-
-| Variable | Set to | Why |
-|---|---|---|
-| `CLAUDE_TIMEOUT_MS` | `25000` | Give up just under Netlify's 26s so you get a readable message rather than a bare 504. Leave it at `9000` until step 2 is confirmed — otherwise Netlify kills the function first and the friendly message never fires. |
-| `CLAUDE_FAST_MODEL` | `claude-sonnet-4-6` | Optional. Sonnet writes better recipes than Haiku but takes longer; with 26s there's room. Revert to `claude-haiku-4-5` if it feels slow. |
-
-Redeploy after changing either.
-
-**Sanity check:** open `/logs` (admin only) or hit the "Check my setup" link on a
-generation error — it reports the model actually responding.
+**Notes**
+- Background functions require a **paid plan**. On Free/Personal the fast path
+  still works; very slow generations will simply fail with a clear message.
+- The 26s synchronous timeout (Pro) is optional now. If you want it anyway, put
+  `[functions."*"] timeout = 26` in `netlify.toml` (already there) **and** ask
+  Netlify support to activate it for your site — the config alone is ignored.
+  Note the `."*"`: `timeout` directly under `[functions]` fails the build with
+  *"functions.timeout must be an object."*
+- `npm run check:config` validates `netlify.toml` before you deploy.
+- `CLAUDE_FAST_MODEL` (default `claude-haiku-4-5`) is the speed lever. With the
+  background path in place you can safely move it to `claude-sonnet-4-6` for
+  better recipes — slow requests just fail over instead of erroring.
 
 ## Honest notes on the tricky requirements
 

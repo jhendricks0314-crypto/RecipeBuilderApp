@@ -31,6 +31,8 @@ export const api = {
   deleteProfile: () => request('profile', { method: 'DELETE' }),
 
   generateRecipes: (body) => request('generate-recipes', { method: 'POST', body }),
+  startBackgroundJob: (body) => request('generate-background', { method: 'POST', body }),
+  jobStatus: (id) => request('job', { params: { id } }),
   // Cheap idea list (names + summaries) before committing tokens to a full recipe.
   suggestRecipes: (whatToCook, prefs, pantryItems) =>
     request('generate-recipes', { method: 'POST', body: { suggest: true, whatToCook, prefs, pantryItems } }),

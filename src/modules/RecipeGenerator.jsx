@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
+import { generate as runGenerate } from '../lib/generate.js'
 import { useAuth } from '../lib/auth.jsx'
 import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, RecipeIcon } from '../components/ui.jsx'
@@ -87,6 +88,7 @@ export default function RecipeGenerator() {
   const [error, setError] = useState('')
   const [diag, setDiag] = useState(null)
   const [checking, setChecking] = useState(false)
+  const [slow, setSlow] = useState(false)
 
   const runCheck = async () => {
     setChecking(true)
@@ -104,9 +106,12 @@ export default function RecipeGenerator() {
   // and we skip straight to writing it rather than making the cook pick from a list of one.
   const generate = async () => {
     if (!whatToCook.trim()) { setError('Tell me what you want to cook.'); return }
-    setError(''); setBusy(true); setRecipe(null); setSavedId(null); setHistory([]); setSuggestions(null); setCost(null)
+    setError(''); setBusy(true); setRecipe(null); setSavedId(null); setHistory([]); setSuggestions(null); setCost(null); setSlow(false)
     try {
-      const { suggestions: list } = await api.suggestRecipes(whatToCook.trim(), prefs, pantry)
+      const { suggestions: list } = await runGenerate(
+        { suggest: true, whatToCook: whatToCook.trim(), prefs, pantryItems: pantry },
+        { onSlow: () => setSlow(true) }
+      )
       if (!list?.length) { setError('No ideas came back — try describing it differently.'); return }
       if (list.length === 1) { await pick(list[0], 0); return }
       setSuggestions(list)
@@ -115,14 +120,12 @@ export default function RecipeGenerator() {
 
   // Step 2: write the full recipe for the idea they chose.
   const pick = async (suggestion, idx) => {
-    setError(''); setPicking(idx); setHistory([]); setSavedId(null)
+    setError(''); setPicking(idx); setHistory([]); setSavedId(null); setSlow(false)
     try {
-      const { recipe: full } = await api.generateRecipes({
-        whatToCook: whatToCook.trim(),
-        pick: suggestion,
-        prefs,
-        pantryItems: pantry,
-      })
+      const { recipe: full } = await runGenerate(
+        { whatToCook: whatToCook.trim(), pick: suggestion, prefs, pantryItems: pantry },
+        { onSlow: () => setSlow(true) }
+      )
       setRecipe(full)
       setSuggestions(null)
       priceRecipe(full)
@@ -146,14 +149,17 @@ export default function RecipeGenerator() {
   const revise = async () => {
     const cmd = command.trim()
     if (!cmd) { setError('Tell me what to change about this recipe.'); return }
-    setError(''); setRevising(true)
+    setError(''); setRevising(true); setSlow(false)
     try {
       const check = await api.validateCommand(cmd)
       if (!check.related) {
         setError(`That isn't about the recipe: ${check.reason || 'try something food-related.'}`)
         setRevising(false); return
       }
-      const { recipe: revised } = await api.reviseRecipe(recipe, cmd)
+      const { recipe: revised } = await runGenerate(
+        { revise: true, recipe, command: cmd },
+        { onSlow: () => setSlow(true) }
+      )
       setRecipe(revised)
       priceRecipe(revised)
       setHistory((h) => [...h, cmd])
@@ -241,7 +247,7 @@ export default function RecipeGenerator() {
         </div>
 
         <button className="btn btn-primary btn-block" style={{ marginTop: 16 }} onClick={generate} disabled={busy}>
-          {busy ? <><Spinner /> Thinking up ideas…</> : 'Get recipe ideas'}
+          {busy ? <><Spinner /> {slow ? 'Still working — this one needs a bit longer…' : 'Thinking up ideas…'}</> : 'Get recipe ideas'}
         </button>
       </div>
 
