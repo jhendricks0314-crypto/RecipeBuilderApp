@@ -12,7 +12,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/favicon.svg', 'icons/apple-touch-icon.png'],
+      includeAssets: ['icons/favicon-32.png', 'icons/favicon-96.png', 'icons/apple-touch-icon.png'],
       manifest: {
         // An explicit, stable id. Chrome keys an installed app by this; it
         // defaults to start_url, so '/' matches existing installs and keeps
@@ -23,7 +23,7 @@ export default defineConfig({
         description:
           'Generate recipes with AI, build budget shopping lists, and turn scanned receipts into real prices.',
         theme_color: '#16231c',
-        background_color: '#16231c',
+        background_color: '#000000',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',

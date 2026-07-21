@@ -3,7 +3,7 @@ import { api } from '../lib/api.js'
 import { useAuth } from '../lib/auth.jsx'
 import { usePersistentState, clearDraftsFor } from '../lib/persist.jsx'
 import { Banner, Spinner } from '../components/ui.jsx'
-import { IconRain } from '../components/icons.jsx'
+import BrandMark from '../components/Brand.jsx'
 
 export default function Onboarding() {
   const { user, refresh, logout } = useAuth()
@@ -30,7 +30,7 @@ export default function Onboarding() {
     <div className="login-wrap">
       <div className="login-card" style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'center', color: 'var(--saffron)', marginBottom: 8 }}>
-          <IconRain />
+          <BrandMark size={112} />
         </div>
         <h1 style={{ fontSize: 32 }}>Set up your kitchen</h1>
         <p style={{ margin: '8px 0 22px' }}>

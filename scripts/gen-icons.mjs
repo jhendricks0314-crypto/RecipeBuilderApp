@@ -1,82 +1,75 @@
-// Generates the PWA icon set for RAIning Recipes.
-// Run with: npm run gen:icons
+// Generates the PWA icon set for RAIning Recipes from the brand logo
+// (src/assets/logo.png). Run with: npm run gen:icons
 //
-// The mark: a cloud built from wired-up neural nodes — the "AI" doing the
-// thinking — raining a recipe card, a droplet and a herb sprig down into your
-// kitchen. The circuitry reads as automation, the falling card and sprig read as
-// food, and at favicon size it still resolves as a clean cloud-with-rain shape.
+// The logo is a dark circular badge with fine detail (the wordmark and the little
+// PANTRY/PRICES/SHOP/LISTS row). That detail reads at 512px but turns to mush
+// below ~128px, so small icons are cropped to the emblem — the AI cloud raining
+// into the bowl — which stays legible at any size.
 import sharp from 'sharp'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = join(root, 'public', 'icons')
+// Full-resolution artwork lives here; src/assets/logo.png is a downscaled copy
+// used for in-app display only.
+const SRC = join(root, 'scripts', 'logo-source.png')
 mkdirSync(outDir, { recursive: true })
 
-const INK = '#16231c'
-const SAFFRON = '#e0a82e'
-const CREAM = '#f5f2ea'
-const BASIL = '#7fb08e'
+// The badge is a circular mark on a black field, so padding uses the same black
+// and the inset is invisible.
+const BG = { r: 0, g: 0, b: 0, alpha: 1 }
+const CLEAR = { r: 0, g: 0, b: 0, alpha: 0 }
 
-// --- the AI cloud: outline + neural nodes wired together ---
-const cloud = `
-  <path d="M150 232c-30 0-54-24-54-54 0-27 20-49 46-53 8-31 36-54 69-54 27 0 51 15 63 38 6-3 13-4 20-4 26 0 47 21 47 47 0 3 0 6-1 9 21 6 36 25 36 48 0 12-6 23-15 31"
-        fill="none" stroke="${SAFFRON}" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M150 232h211" fill="none" stroke="${SAFFRON}" stroke-width="17" stroke-linecap="round"/>
-  <g stroke="${BASIL}" stroke-width="7" stroke-linecap="round" fill="none">
-    <path d="M175 178l45-28 48 30 44-26"/>
-    <path d="M220 150v-28"/>
-    <path d="M268 180v28"/>
-  </g>
-  <g fill="${CREAM}">
-    <circle cx="175" cy="178" r="12"/>
-    <circle cx="220" cy="150" r="12"/>
-    <circle cx="268" cy="180" r="12"/>
-    <circle cx="312" cy="154" r="12"/>
-    <circle cx="220" cy="122" r="9"/>
-    <circle cx="268" cy="208" r="9"/>
-  </g>`
+async function compose(artBuf, size) {
+  return sharp({ create: { width: size, height: size, channels: 4, background: BG } })
+    .composite([{ input: artBuf, gravity: 'centre' }])
+    .png()
+    .toBuffer()
+}
 
-// --- the rain: a recipe card, a droplet, a herb sprig ---
-const rain = `
-  <g transform="translate(146 286) rotate(-13)">
-    <rect x="0" y="0" width="86" height="106" rx="12" fill="${CREAM}"/>
-    <g stroke="${INK}" stroke-width="8" stroke-linecap="round" opacity="0.85">
-      <path d="M18 30h50"/><path d="M18 54h50"/><path d="M18 78h30"/>
-    </g>
-  </g>
+// Full badge, padded slightly so the circle isn't flush to the edge.
+async function fullBadge(size, pad = 0.01) {
+  const inner = Math.round(size * (1 - pad * 2))
+  const art = await sharp(SRC).resize(inner, inner, { fit: 'contain', background: CLEAR }).toBuffer()
+  return compose(art, size)
+}
 
-  <path d="M292 300c0 0-30 34-30 52a30 30 0 0 0 60 0c0-18-30-52-30-52z" fill="${SAFFRON}"/>
+// Just the emblem (upper portion of the artwork) for small sizes.
+async function emblem(size, pad = 0.06) {
+  const meta = await sharp(SRC).metadata()
+  const side = Math.round(meta.width * 0.58)
+  const left = Math.round((meta.width - side) / 2)
+  const top = Math.round(meta.height * 0.08)
+  const inner = Math.round(size * (1 - pad * 2))
+  const art = await sharp(SRC)
+    .extract({ left, top, width: side, height: side })
+    .resize(inner, inner, { fit: 'contain', background: CLEAR })
+    .toBuffer()
+  return compose(art, size)
+}
 
-  <g transform="translate(356 302)">
-    <path d="M14 0v74" stroke="${BASIL}" stroke-width="11" stroke-linecap="round" fill="none"/>
-    <path d="M14 24c-16-4-24-16-24-16s16-6 24 16z" fill="${BASIL}"/>
-    <path d="M14 50c16-4 24-16 24-16s-16-6-24 16z" fill="${BASIL}"/>
-  </g>
-
-  <circle cx="196" cy="426" r="11" fill="${SAFFRON}" opacity="0.75"/>
-  <circle cx="292" cy="406" r="9" fill="${CREAM}" opacity="0.6"/>`
-
-const mark = cloud + rain
-
-const svg = (maskable = false) => `
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="${maskable ? 0 : 112}" fill="${INK}"/>
-  ${maskable ? `<g transform="translate(51 56) scale(0.8)">${mark}</g>` : mark}
-</svg>`
-
-const favicon = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="${INK}"/>${mark}
-</svg>`
+// Launchers crop maskable icons hard, so keep the art inside the middle ~62%.
+async function maskable(size) {
+  const inner = Math.round(size * 0.62)
+  const art = await sharp(SRC).resize(inner, inner, { fit: 'contain', background: CLEAR }).toBuffer()
+  return compose(art, size)
+}
 
 async function run() {
-  writeFileSync(join(outDir, 'favicon.svg'), favicon.trim())
-  await sharp(Buffer.from(svg())).resize(192, 192).png().toFile(join(outDir, 'pwa-192.png'))
-  await sharp(Buffer.from(svg())).resize(512, 512).png().toFile(join(outDir, 'pwa-512.png'))
-  await sharp(Buffer.from(svg(true))).resize(512, 512).png().toFile(join(outDir, 'pwa-512-maskable.png'))
-  await sharp(Buffer.from(svg())).resize(180, 180).png().toFile(join(outDir, 'apple-touch-icon.png'))
+  const write = async (buf, name) => { await sharp(buf).toFile(join(outDir, name)) }
+
+  await write(await fullBadge(512), 'pwa-512.png')
+  await write(await maskable(512), 'pwa-512-maskable.png')
+  await write(await fullBadge(192), 'pwa-192.png')
+  await write(await fullBadge(180), 'apple-touch-icon.png')
+
+  // Small sizes use the emblem so they stay legible.
+  await write(await emblem(96), 'favicon-96.png')
+  await write(await emblem(48), 'favicon-48.png')
+  await write(await emblem(32), 'favicon-32.png')
+
   console.log('Icons written to public/icons')
 }
 run().catch((e) => { console.error(e); process.exit(1) })

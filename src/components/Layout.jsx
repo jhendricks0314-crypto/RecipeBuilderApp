@@ -1,6 +1,7 @@
 import { NavLink, Outlet, Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth.jsx'
-import { IconGenerate, IconCart, IconBook, IconScan, IconPantry, IconRain } from './icons.jsx'
+import { IconGenerate, IconCart, IconBook, IconScan, IconPantry } from './icons.jsx'
+import BrandMark from './Brand.jsx'
 
 const NAV = [
   { to: '/generate', label: 'Generate', Icon: IconGenerate },
@@ -16,7 +17,7 @@ export default function Layout() {
     <div className="app">
       <header className="topbar">
         <Link to="/generate" className="brand" style={{ textDecoration: 'none' }}>
-          <IconRain />
+          <BrandMark size={30} />
           <span><span className="dot">RAI</span>ning Recipes</span>
         </Link>
         <div className="topbar-right">

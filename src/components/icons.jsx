@@ -25,19 +25,6 @@ export const IconBarcode = () => (
 export const IconCamera = () => (
   <svg viewBox="0 0 24 24" {...S}><path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L19 6h0a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="3.2"/></svg>
 )
-// The brand mark: an AI cloud raining recipes (matches the app icon).
-export const IconRain = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M7 12.5a3 3 0 0 1-.4-6A4.2 4.2 0 0 1 14.4 5a2.6 2.6 0 0 1 3.7 2.6 2.9 2.9 0 0 1 .5 5.7"/>
-    <path d="M7 12.5h11"/>
-    <circle cx="9.5" cy="8.6" r="1" fill="currentColor" stroke="none"/>
-    <circle cx="12.5" cy="7.2" r="1" fill="currentColor" stroke="none"/>
-    <circle cx="15.5" cy="9" r="1" fill="currentColor" stroke="none"/>
-    <path d="M9.5 8.6 12.5 7.2l3 1.8"/>
-    <path d="M8.5 16v2.5M12 15.5V19M15.5 16v2.5"/>
-  </svg>
-)
-
 export const IconFork = () => (
   <svg viewBox="0 0 24 24" {...S}><path d="M7 3v6a2.5 2.5 0 0 0 5 0V3M9.5 3v18M17 3c-1.5 0-2.5 2-2.5 5s1 4 2.5 4 2.5-1 2.5-4-1-5-2.5-5zM17 12v9"/></svg>
 )
