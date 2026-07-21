@@ -59,6 +59,21 @@ const GEN_SYSTEM = `${BASE_RULES}
 Return an array containing exactly ONE recipe object with these fields:
 ${RECIPE_SHAPE}`
 
+// Step one of generating: cheap ideas, so the cook picks a dish before we spend
+// tokens writing it out in full.
+const SUGGEST_SYSTEM = `${BASE_RULES}
+You are proposing recipe IDEAS, not writing recipes. Return an array of objects:
+[ { "name": string, "summary": string, "cuisine": string, "estimatedTimeMinutes": number, "tool": string } ]
+- "summary" is ONE sentence describing the dish and what makes it worth cooking.
+- Every idea must be a genuinely DIFFERENT dish — not the same recipe with a swapped garnish.
+- Honour every constraint given (tools, exclusions, diets, pantry rules) in every idea.
+
+How many to return depends on how specific the request is:
+- Vague or open ("something with chicken", "quick weeknight dinners") -> up to 10 varied ideas.
+- Moderately specific ("a chicken pasta bake") -> 3 to 5 sensible variations.
+- Precise ("chicken parmesan", "my grandmother's beef stew") -> 1 or 2. Do NOT pad it out.
+Return only as many genuinely distinct ideas as the request actually supports.`
+
 // Turn the household's saved options into hard constraints for the model.
 function constraints(prefs = {}, pantryItems = []) {
   const out = []

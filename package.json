@@ -3,13 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "RAIning Recipes — AI recipe planning, budgeting, shopping lists, and receipt-powered pricing.",
+  "description": "RAIning Recipes \u2014 AI recipe planning, budgeting, shopping lists, and receipt-powered pricing.",
   "scripts": {
     "dev": "netlify dev",
     "dev:vite": "vite",
-    "build": "vite build",
+    "build": "eslint netlify src scripts && vite build",
     "preview": "vite preview",
-    "gen:icons": "node scripts/gen-icons.mjs"
+    "gen:icons": "node scripts/gen-icons.mjs",
+    "lint": "eslint netlify src scripts"
   },
   "dependencies": {
     "@zxing/browser": "^0.1.5",
@@ -21,6 +22,8 @@
     "@netlify/blobs": "^8.1.0",
     "@netlify/functions": "^2.8.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^9.39.5",
+    "globals": "^17.7.0",
     "jsonwebtoken": "^9.0.2",
     "sharp": "^0.33.5",
     "vite": "^5.4.8",

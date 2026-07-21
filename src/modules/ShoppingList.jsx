@@ -48,7 +48,7 @@ export default function ShoppingList() {
         setActive(initial || null)
       })
       .catch((e) => setError(e.message))
-  }, []) // eslint-disable-line
+  }, [])
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 1600) }
 
