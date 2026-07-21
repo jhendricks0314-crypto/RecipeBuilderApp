@@ -139,7 +139,12 @@ plans, on request). AI generation can exceed that, so:
   builds resent the full recipe on every correction, so the request grew with each
   revision until it timed out.
 - If you raise your Netlify timeout, raise `CLAUDE_TIMEOUT_MS` to match.
-- `claude-haiku-4-5` is markedly faster than Sonnet if you want more headroom.
+- Generation runs on `CLAUDE_FAST_MODEL` (default `claude-haiku-4-5`) precisely
+  because it's several times quicker than Sonnet. Only move it to Sonnet if
+  you've raised the Netlify timeout.
+- The model writes a deliberately terse JSON shape (short keys; steps reference
+  ingredients by index rather than repeating names), which cuts the generated
+  payload ~40%. It's expanded server-side, so nothing downstream changes.
 
 ## Honest notes on the tricky requirements
 

@@ -17,30 +17,34 @@
 // No cost/budget: item pricing lives in the price database + ZIP estimates, which
 // are far more accurate than a model guessing what groceries cost.
 import { getUser, ok, bad, unauth } from './_shared/auth.js'
-import { claudeJSON, hasClaude } from './_shared/claude.js'
+import { claudeJSON, hasClaude, FAST_MODEL } from './_shared/claude.js'
 import { id } from './_shared/blobs.js'
 import { logError } from './_shared/log.js'
 
+// Deliberately terse field names and index-based step references.
+//
+// Netlify kills a synchronous function at 10s (Free/Personal plans), and the
+// slowest thing here is the model writing tokens. Short keys, and steps that
+// point at ingredients by index instead of repeating their names, cut the
+// generated payload by roughly 40% — which is the difference between finishing
+// in time and timing out. It's expanded back to readable fields below, so the
+// rest of the app never sees this shape.
 const RECIPE_SHAPE = `{
-  "name": string,                 // a unique, appetizing name
-  "summary": string,              // one short sentence describing the dish
+  "name": string,
+  "summary": string,          // one short sentence
   "cuisine": string,
-  "tool": string,                 // the main tool used — MUST be one the cook has
+  "tool": string,             // main tool used — MUST be one the cook has
   "servings": number,
-  "estimatedTimeMinutes": number,
-  "highlights": string,           // "" normally. When trends are on: one line naming the modern ingredient/technique used and why it works.
-  "ingredients": [ { "item": string, "quantity": string, "have": boolean } ],
-  "steps": [ { "text": string, "note": string, "uses": [ { "item": string, "amount": string } ] } ]
+  "mins": number,             // total time in minutes
+  "hi": string,               // "" normally; when modern mode is on, one line naming the modern element used
+  "ing": [ { "i": string, "q": string, "h": boolean } ],
+  "steps": [ { "t": string, "n": string, "u": [ [number, string] ] } ]
 }
-For every step, "uses" lists the ingredients consumed IN THAT STEP so the cook can measure as they go:
-- "item" MUST match an ingredient name from the ingredients list exactly.
-- "amount" is how much of it that step uses ("1 tsp", "half", "the rest").
-- CRITICAL: when an ingredient is used across several steps, split it so the per-step amounts ADD UP to the total in the ingredients list. If the list says 1 1/2 tsp salt and two steps use it, they might be "1 tsp" and "1/2 tsp" — never "1 1/2 tsp" twice.
-- Only list what is actually added or used in that step. A step like "bake for 30 minutes" uses nothing, so "uses" is [].
-- Ingredients used in their entirety in one step get the full amount.
-
-Set "have" to true ONLY for items the cook already has (from the on-hand list, or an obvious basic staple like salt/pepper/water/cooking oil). Everything else is false — those are the things they'll need to buy.
-Organize steps for real-kitchen efficiency: when a step involves waiting (baking, simmering, resting), the "note" on that step should say what to prep or start in parallel while they wait.`
+- "ing": i = ingredient name, q = quantity, h = true ONLY if the cook already has it (on-hand list, or a basic staple like salt/pepper/oil/water). Everything else false — those are what they'll buy.
+- "steps": t = the instruction, n = optional efficiency tip while waiting (else ""), u = what this step uses.
+- "u" entries are [index into "ing", amount used in this step]. Use [] for steps that add nothing (e.g. "bake 30 minutes").
+- CRITICAL: when an ingredient is used in several steps, split it so the per-step amounts ADD UP to its total in "ing". If "ing" says 1 1/2 tsp salt across two steps, use "1 tsp" and "1/2 tsp" — never the full amount twice.
+- Be concise. No prose outside the JSON.`
 
 const BASE_RULES = `You are RAIning Recipes's recipe chef. You write practical, well-tested home recipes.
 Return ONLY JSON — no prose, no markdown fences.`
@@ -121,7 +125,29 @@ Do not chase novelty for its own sake and do not use anything hard to find in an
   return out.length ? `\n\nConstraints:\n${out.map((c) => `- ${c}`).join('\n')}` : ''
 }
 
+// Turn the terse model output back into the shape the rest of the app expects.
+function expand(r) {
+  if (!r || typeof r !== 'object') return r
+  if (r.ingredients || !r.ing) return r          // already in long form
+  const ing = (r.ing || []).map((x) => ({ item: x.i, quantity: x.q || '', have: !!x.h }))
+  return {
+    ...r,
+    estimatedTimeMinutes: r.mins ?? r.estimatedTimeMinutes,
+    highlights: r.hi ?? r.highlights ?? '',
+    ingredients: ing,
+    steps: (r.steps || []).map((st) => ({
+      text: st.t ?? st.text ?? '',
+      note: st.n ?? st.note ?? '',
+      uses: (st.u || []).map(([idx, amount]) => ({
+        item: ing[idx]?.item || '',
+        amount: amount || '',
+      })).filter((u) => u.item),
+    })),
+  }
+}
+
 function shape(r, user, existing) {
+  r = expand(r)
   return {
     id: existing?.id || id('rec_'),
     profileId: user.profileId,
@@ -212,7 +238,7 @@ export default async (req) => {
         },
       ]
 
-      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 5000, messages })
+      const revised = await claudeJSON({ system: REVISE_SYSTEM, maxTokens: 5000, messages, model: FAST_MODEL() })
       const recipe = shape(Array.isArray(revised) ? revised[0] : revised, user, prev)
       recipe.originalRequest = origin
       recipe.revisions = [...(prev.revisions || []), command]
@@ -230,7 +256,8 @@ Propose recipe ideas that fit.` + constraints(prefs, body.pantryItems)
 
       const raw = await claudeJSON({
         system: SUGGEST_SYSTEM,
-        maxTokens: 4000,
+        model: FAST_MODEL(),
+        maxTokens: 2500,
         messages: [{ role: 'user', content: prompt }],
       })
       const suggestions = (Array.isArray(raw) ? raw : [raw])
@@ -259,7 +286,8 @@ The cook originally asked for: "${what}". Stay true to the dish named above.` + 
 
     const recipes = await claudeJSON({
       system: GEN_SYSTEM,
-      maxTokens: 5000,
+      model: FAST_MODEL(),
+      maxTokens: 4000,
       messages: [{ role: 'user', content: userPrompt }],
     })
 

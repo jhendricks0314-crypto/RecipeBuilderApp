@@ -3,6 +3,15 @@
 // vision parsing. All callers pass a system prompt + content blocks.
 const API = 'https://api.anthropic.com/v1/messages'
 
+// Two model roles.
+//
+// FAST is used wherever a person is waiting on a synchronous Netlify function
+// (10s on Free/Personal plans). Haiku generates several times quicker than
+// Sonnet, and recipe writing is structured generation — exactly what it's good
+// at. QUALITY is available for work that isn't latency-bound.
+export const FAST_MODEL = () => process.env.CLAUDE_FAST_MODEL || 'claude-haiku-4-5'
+export const QUALITY_MODEL = () => process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'
+
 export function hasClaude() {
   return !!process.env.ANTHROPIC_API_KEY
 }
