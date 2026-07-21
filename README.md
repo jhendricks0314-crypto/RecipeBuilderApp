@@ -127,24 +127,41 @@ automated querying. That gate can't be honestly automated, and shouldn't be.
 
 Steps 1 and 3 are fully automated. Only the captcha is on you.
 
-## If you see a 504 on generation
+## Function timeout (and what to do on Pro)
 
-Netlify kills synchronous functions at **10 seconds** (raisable to 26s on Pro
-plans, on request). AI generation can exceed that, so:
+Netlify kills a synchronous function at **10 seconds** on Free and Personal
+plans. Pro raises the ceiling to **26 seconds**. Turning that on takes two steps —
+the config alone does nothing.
 
-- Requests abort just under the limit and return a readable message rather than
-  a bare 504. Tune with `CLAUDE_TIMEOUT_MS`.
-- Revisions send **compact context** — the current recipe plus a short list of
-  changes already applied — instead of replaying the whole conversation. Earlier
-  builds resent the full recipe on every correction, so the request grew with each
-  revision until it timed out.
-- If you raise your Netlify timeout, raise `CLAUDE_TIMEOUT_MS` to match.
-- Generation runs on `CLAUDE_FAST_MODEL` (default `claude-haiku-4-5`) precisely
-  because it's several times quicker than Sonnet. Only move it to Sonnet if
-  you've raised the Netlify timeout.
-- The model writes a deliberately terse JSON shape (short keys; steps reference
-  ingredients by index rather than repeating names), which cuts the generated
-  payload ~40%. It's expanded server-side, so nothing downstream changes.
+**1. Config (already in `netlify.toml`):**
+
+```toml
+[functions]
+  timeout = 26
+```
+
+**2. Ask Netlify to activate it.** This is the part people miss: the setting is
+ignored until support enables the extended timeout for your specific site. Post
+in the [Netlify support forum](https://answers.netlify.com/) with your site name
+and site ID (Site configuration → General → Site information):
+
+> I'm on the Pro plan and would like the synchronous function timeout raised to
+> the maximum 26 seconds for my site.
+> Site: YOUR-SITE.netlify.app — Site ID: YOUR-SITE-ID
+> The site proxies Anthropic Claude API calls for recipe generation, which can
+> take longer than 10 seconds. I already have `timeout = 26` in netlify.toml.
+
+**3. Then update the app** (Site settings → Environment variables):
+
+| Variable | Set to | Why |
+|---|---|---|
+| `CLAUDE_TIMEOUT_MS` | `25000` | Give up just under Netlify's 26s so you get a readable message rather than a bare 504. Leave it at `9000` until step 2 is confirmed — otherwise Netlify kills the function first and the friendly message never fires. |
+| `CLAUDE_FAST_MODEL` | `claude-sonnet-4-6` | Optional. Sonnet writes better recipes than Haiku but takes longer; with 26s there's room. Revert to `claude-haiku-4-5` if it feels slow. |
+
+Redeploy after changing either.
+
+**Sanity check:** open `/logs` (admin only) or hit the "Check my setup" link on a
+generation error — it reports the model actually responding.
 
 ## Honest notes on the tricky requirements
 
