@@ -18,7 +18,7 @@ export default function Layout() {
       <header className="topbar">
         <Link to="/generate" className="brand" style={{ textDecoration: 'none' }}>
           <BrandMark size={30} />
-          <span><span className="dot">RAI</span>ning Recipes</span>
+          <span>R<span className="dot">AI</span>ning Recipes</span>
         </Link>
         <div className="topbar-right">
           <Link to="/profile" aria-label="Profile">

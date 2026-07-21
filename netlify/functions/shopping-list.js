@@ -70,6 +70,110 @@ function norm(s) {
     .trim()
 }
 
+
+// Build a name that actually distinguishes one list from another.
+function defaultTitle(names) {
+  if (!names?.length) return 'Shopping list'
+  if (names.length === 1) return names[0]
+  if (names.length === 2) return `${names[0]} + ${names[1]}`
+  return `${names[0]} + ${names.length - 1} more`
+}
+
+// Aggregate the ingredients of a set of recipes into priced line items.
+// Shared by list creation and by changing which recipes a list covers, so the
+// two can't produce different results.
+async function buildItems({ ids, user, priceRecords, preferred, pantryItems, inPantry }) {
+  const agg = new Map()
+  const recipeNames = []
+  for (const rid of ids) {
+    const r = await readJSON(S.recipes(), rid)
+    if (!r || r.profileId !== user.profileId) continue
+    recipeNames.push(r.name)
+    for (const ing of r.ingredients || []) {
+      const key = norm(ing.item)
+      if (!key) continue
+      if (!agg.has(key)) agg.set(key, { name: ing.item, quantities: [], fromRecipes: [], have: !!ing.have })
+      const a = agg.get(key)
+      if (ing.quantity) a.quantities.push(ing.quantity)
+      a.fromRecipes.push(r.name)
+      if (ing.have) a.have = true
+    }
+  }
+
+  const items = []
+  for (const a of agg.values()) {
+    const pantryHit = inPantry(a.name)
+    const owned = a.have || !!pantryHit
+    const { prices, best } = priceFromDB(a.name, priceRecords, preferred)
+    const qtyText = a.quantities.join(' + ')
+    const scaled = best ? priceForQuantity(qtyText, best.price, best.unit) : null
+
+    items.push({
+      id: id('item_'),
+      name: a.name,
+      quantity: qtyText || '',
+      fromRecipes: [...new Set(a.fromRecipes)],
+      source: 'recipe',
+      checked: false,
+      removed: owned,
+      inPantry: owned,
+      pantryNote: pantryHit ? `You have ${pantryHit.name} in your pantry` : (owned ? 'Already on hand' : null),
+      chosenStore: best?.store || null,
+      unitPrice: best?.price ?? null,
+      priceUnit: best?.unit || '',
+      packages: scaled?.packages ?? null,
+      bestPrice: scaled ? scaled.total : (best?.price ?? null),
+      priceBasis: scaled?.basis || '',
+      priceExact: scaled ? scaled.exact : null,
+      priceByStore: prices,
+      priceSource: best ? 'recorded' : null,
+      estimateUnit: null,
+    })
+  }
+  items.sort((a, b) => a.name.localeCompare(b.name))
+
+  const substitutions = await suggestSubstitutions(
+    items.filter((i) => !i.inPantry).map((i) => ({ id: i.id, name: i.name })),
+    pantryItems
+  )
+  return { items, recipeNames, substitutions }
+}
+
+// Re-aggregate a list after its recipes change, WITHOUT losing the cook's work:
+// anything ticked off, priced by hand, or added manually survives.
+function mergeItems(existing, rebuilt) {
+  const byName = new Map(existing.map((i) => [norm(i.name), i]))
+  const merged = rebuilt.map((next) => {
+    const prev = byName.get(norm(next.name))
+    if (!prev) return next
+    return {
+      ...next,
+      id: prev.id,
+      checked: prev.checked,
+      removed: prev.removed,
+      // A price the cook set or a store they chose always wins.
+      ...(prev.priceLocked
+        ? {
+            priceLocked: true,
+            chosenStore: prev.chosenStore,
+            bestPrice: prev.bestPrice,
+            unitPrice: prev.unitPrice,
+            priceUnit: prev.priceUnit,
+            packages: prev.packages,
+            priceSource: prev.priceSource,
+          }
+        : {}),
+      ...(prev.edited ? { name: prev.name, quantity: prev.quantity, edited: true } : {}),
+    }
+  })
+  // Manually added lines belong to the cook, not to any recipe — always keep
+  // them. Skip any whose name a recipe now supplies too, or adding a recipe that
+  // happens to use the same ingredient would leave two identical lines.
+  const rebuiltNames = new Set(merged.map((i) => norm(i.name)))
+  const manual = existing.filter((i) => i.source === 'manual' && !rebuiltNames.has(norm(i.name)))
+  return [...merged, ...manual].sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export default async (req) => {
   const user = await getUser(req)
   if (!user) return unauth()
@@ -80,7 +184,7 @@ export default async (req) => {
   try {
     // ---- Generate a fresh list from selected recipes ----
     if (req.method === 'POST' && seg === 'generate') {
-      const { recipeIds, stores: chosenStores } = await req.json()
+      const { recipeIds, stores: chosenStores, title } = await req.json()
       const ids = Array.isArray(recipeIds) ? recipeIds : []
       if (!ids.length) return bad('Select at least one recipe.')
 
@@ -93,79 +197,53 @@ export default async (req) => {
       const pantryItems = pantryDoc?.items || []
       const inPantry = (name) => pantryItems.find((p) => similarity(p.name, name) >= 0.6) || null
 
-      // Aggregate ingredients across recipes (merge duplicates by normalized name).
-      const agg = new Map()
-      const recipeNames = []
-      for (const rid of ids) {
-        const r = await readJSON(S.recipes(), rid)
-        if (!r || r.profileId !== user.profileId) continue
-        recipeNames.push(r.name)
-        for (const ing of r.ingredients || []) {
-          const key = norm(ing.item)
-          if (!key) continue
-          if (!agg.has(key)) agg.set(key, { name: ing.item, quantities: [], fromRecipes: [], have: !!ing.have })
-          const a = agg.get(key)
-          if (ing.quantity) a.quantities.push(ing.quantity)
-          a.fromRecipes.push(r.name)
-          if (ing.have) a.have = true
-        }
-      }
-
-      const items = []
-      for (const a of agg.values()) {
-        // Skip only when the pantry truly has it (or the recipe flagged it).
-        const pantryHit = inPantry(a.name)
-        const owned = a.have || !!pantryHit
-
-        const { prices, best } = priceFromDB(a.name, priceRecords, preferred)
-
-        // A recorded price is for ONE unit (e.g. $5.99 per lb). Scale it to the
-        // amount this list actually needs, so 2.5 lbs of beef reads ~$15, not $5.99.
-        const qtyText = a.quantities.join(' + ')
-        const scaled = best ? priceForQuantity(qtyText, best.price, best.unit) : null
-
-        items.push({
-          id: id('item_'),
-          name: a.name,
-          quantity: a.quantities.join(' + ') || '',
-          fromRecipes: [...new Set(a.fromRecipes)],
-          checked: false,
-          removed: owned,                       // already have it -> off the buy list
-          inPantry: owned,
-          pantryNote: pantryHit ? `You have ${pantryHit.name} in your pantry` : (owned ? 'Already on hand' : null),
-          chosenStore: best?.store || null,
-          unitPrice: best?.price ?? null,       // price for ONE unit
-          priceUnit: best?.unit || '',          // what that unit is ("1 lb")
-          packages: scaled?.packages ?? null,   // how many units this list needs
-          bestPrice: scaled ? scaled.total : (best?.price ?? null), // line total
-          priceBasis: scaled?.basis || '',
-          priceExact: scaled ? scaled.exact : null,
-          priceByStore: prices,                 // recorded prices only; estimates fill in later
-          priceSource: best ? 'recorded' : null,
-          estimateUnit: null,
-        })
-      }
-      items.sort((a, b) => a.name.localeCompare(b.name))
-
-      // Suggest pantry-based substitutions (e.g. pancake mix -> flour/eggs/milk
-      // you already have). The user decides; nothing is applied automatically.
-      const substitutions = await suggestSubstitutions(
-        items.filter((i) => !i.inPantry).map((i) => ({ id: i.id, name: i.name })),
-        pantryItems
-      )
+      const built = await buildItems({ ids, user, priceRecords, preferred, pantryItems, inPantry })
 
       const list = {
         id: id('list_'),
         profileId: user.profileId,
-        title: recipeNames.length === 1 ? recipeNames[0] : `${recipeNames.length} recipes`,
+        // A name the cook chooses. Defaulting every multi-recipe list to
+        // "2 recipes" made them impossible to tell apart in the list picker.
+        title: (title || '').trim() || defaultTitle(built.recipeNames),
         recipeIds: ids,
-        recipeNames,
+        recipeNames: built.recipeNames,
         stores: preferred,
         zip: profile?.zip || '',
-        items,
-        substitutions,      // [{ itemId, itemName, makeFrom:[], note }] — pending user's call
+        items: built.items,
+        substitutions: built.substitutions,
         createdAt: new Date().toISOString(),
       }
+      await writeJSON(S.shoppingLists(), list.id, list)
+      return ok({ list })
+    }
+
+    // ---- Change which recipes a list covers, keeping the cook's work ----
+    if (req.method === 'PUT' && seg === 'recipes') {
+      const { listId, recipeIds } = await req.json()
+      const list = await readJSON(S.shoppingLists(), listId)
+      if (!list || list.profileId !== user.profileId) return forbidden()
+
+      const nextIds = Array.isArray(recipeIds) ? recipeIds : []
+      const profile2 = await readJSON(S.profiles(), user.profileId)
+      const pantryDoc2 = await readJSON(S.pantry(), user.profileId)
+      const pantryItems2 = pantryDoc2?.items || []
+      const inPantry2 = (name) => pantryItems2.find((p) => similarity(p.name, name) >= 0.6) || null
+      const records2 = await allPriceRecords()
+
+      const rebuilt = await buildItems({
+        ids: nextIds,
+        user,
+        priceRecords: records2,
+        preferred: profile2?.preferredStores || [],
+        pantryItems: pantryItems2,
+        inPantry: inPantry2,
+      })
+
+      list.recipeIds = nextIds
+      list.recipeNames = rebuilt.recipeNames
+      list.items = mergeItems(list.items || [], rebuilt.items)
+      list.substitutions = rebuilt.substitutions
+      list.updatedAt = new Date().toISOString()
       await writeJSON(S.shoppingLists(), list.id, list)
       return ok({ list })
     }

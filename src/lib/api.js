@@ -56,8 +56,10 @@ export const api = {
   shareRecipe: (recipeIds, email) => request('share-recipe', { method: 'POST', body: { recipeIds, email } }),
 
   stores: (params) => request('stores', { params }),
-  generateList: (recipeIds, stores) =>
-    request('shopping-list/generate', { method: 'POST', body: { recipeIds, stores } }),
+  generateList: (recipeIds, stores, title) =>
+    request('shopping-list/generate', { method: 'POST', body: { recipeIds, stores, title } }),
+  setListRecipes: (listId, recipeIds) =>
+    request('shopping-list/recipes', { method: 'PUT', body: { listId, recipeIds } }),
   listShoppingLists: () => request('shopping-list'),
   getShoppingList: (id) => request('shopping-list', { params: { id } }),
   updateShoppingList: (list) => request('shopping-list', { method: 'PUT', body: { list } }),
