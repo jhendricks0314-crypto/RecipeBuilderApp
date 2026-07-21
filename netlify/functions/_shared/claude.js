@@ -21,7 +21,7 @@ export async function claude({ system, messages, maxTokens = 4000, model }) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      model: model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
       max_tokens: maxTokens,
       system,
       messages,
@@ -29,8 +29,26 @@ export async function claude({ system, messages, maxTokens = 4000, model }) {
   })
   if (!res.ok) {
     const text = await res.text()
-    const e = new Error(`Claude API error ${res.status}: ${text.slice(0, 500)}`)
+    let detail = text.slice(0, 300)
+    try { detail = JSON.parse(text)?.error?.message || detail } catch {}
+
+    // Translate the failures that actually happen into something actionable —
+    // a bare "API error 404" tells nobody anything.
+    let friendly
+    if (res.status === 404 || /model/i.test(detail)) {
+      friendly = `The configured Claude model "${model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6'}" was rejected. Set CLAUDE_MODEL to a current one (e.g. claude-sonnet-4-6).`
+    } else if (res.status === 401 || res.status === 403) {
+      friendly = 'The ANTHROPIC_API_KEY was rejected. Check the key in your Netlify environment variables.'
+    } else if (res.status === 429) {
+      friendly = 'Rate limited by the Claude API — wait a moment and try again.'
+    } else if (res.status >= 500) {
+      friendly = 'The Claude API is having trouble right now. Try again shortly.'
+    } else {
+      friendly = `Claude API error ${res.status}: ${detail}`
+    }
+    const e = new Error(friendly)
     e.code = `CLAUDE_${res.status}`
+    e.detail = detail
     throw e
   }
   const data = await res.json()

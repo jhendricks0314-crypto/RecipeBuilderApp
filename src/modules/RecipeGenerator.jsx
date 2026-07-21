@@ -85,6 +85,13 @@ export default function RecipeGenerator() {
   const [savedId, setSavedId] = usePersistentState('gen.savedId', null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [diag, setDiag] = useState(null)
+  const [checking, setChecking] = useState(false)
+
+  const runCheck = async () => {
+    setChecking(true)
+    try { setDiag(await api.health()) } catch (e) { setDiag({ error: e.message }) } finally { setChecking(false) }
+  }
   const [revising, setRevising] = useState(false)
   const [saving, setSaving] = useState(false)
   const [command, setCommand] = useState('')
@@ -183,7 +190,25 @@ export default function RecipeGenerator() {
       <h1 className="page-h">What's cooking?</h1>
       <p className="page-sub">Tell RAIning Recipes what you're in the mood for. Your kitchen setup is remembered and applied every time.</p>
 
-      {error && <Banner kind="error">{error}</Banner>}
+      {error && (
+        <Banner kind="error">
+          <div>{error}</div>
+          <button className="linklike" style={{ marginTop: 6 }} onClick={runCheck} disabled={checking}>
+            {checking ? 'Checking setup…' : 'Check my setup'}
+          </button>
+          {diag && (
+            <div style={{ marginTop: 8, fontSize: 13 }}>
+              {diag.error ? diag.error : diag.checks.map((c) => (
+                <div key={c.name} style={{ marginTop: 4 }}>
+                  {c.ok ? '✓' : '✗'} {c.name}
+                  {!c.ok && c.fix && <div className="muted" style={{ fontSize: 12 }}>{c.fix}</div>}
+                  {c.detail && <div className="muted" style={{ fontSize: 11.5 }}>{c.detail}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </Banner>
+      )}
 
       {/* --- The ask --- */}
       <div className="card">

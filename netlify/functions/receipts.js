@@ -110,6 +110,6 @@ export default async (req) => {
     return bad('Unsupported request.', 405)
   } catch (error) {
     await logError({ req, user, action: `receipts:${seg || req.method}`, error })
-    return bad('Receipt processing failed. Please try again.', 500)
+    return bad(error.code?.startsWith('CLAUDE_') ? error.message : 'Receipt processing failed. Please try again.', 500)
   }
 }

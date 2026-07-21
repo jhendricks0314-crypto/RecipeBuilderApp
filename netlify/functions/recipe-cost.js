@@ -62,6 +62,6 @@ export default async (req) => {
     })
   } catch (error) {
     await logError({ req, user, action: 'recipe-cost', error })
-    return bad('Could not price this recipe.', 500)
+    return bad(error.code?.startsWith('CLAUDE_') ? error.message : 'Could not price this recipe.', 500)
   }
 }

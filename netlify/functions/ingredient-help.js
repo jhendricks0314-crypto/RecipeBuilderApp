@@ -90,6 +90,6 @@ export default async (req) => {
     return ok({ substitutions })
   } catch (error) {
     await logError({ req, user, action: 'ingredient-help', error })
-    return bad('Could not look that up. Please try again.', 500)
+    return bad(error.code?.startsWith('CLAUDE_') ? error.message : 'Could not look that up. Please try again.', 500)
   }
 }

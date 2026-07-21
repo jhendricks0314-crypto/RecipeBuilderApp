@@ -84,4 +84,5 @@ export const api = {
 
   logs: (params) => request('logs', { params }),
   adminUsers: () => request('admin-users'),
+  health: () => request('health'),
 }

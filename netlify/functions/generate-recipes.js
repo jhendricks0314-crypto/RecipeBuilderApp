@@ -245,6 +245,6 @@ The cook originally asked for: "${what}". Stay true to the dish named above.` + 
     return ok({ recipes: shaped, recipe: shaped[0] })
   } catch (error) {
     await logError({ req, user, action: 'generate-recipes', error })
-    return bad('Recipe generation failed. Please try again.', 500)
+    return bad(error.code?.startsWith('CLAUDE_') ? error.message : 'Recipe generation failed. Please try again.', 500)
   }
 }
