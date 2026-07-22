@@ -1,5 +1,7 @@
 // Receipt scanner.
 //   POST /api/receipts/parse   { imageBase64, mediaType, store }
+//     mediaType may be an image (jpeg/png/gif/webp) or application/pdf — e.g. the
+//     PDF receipt Walmart lets you download. Each needs a different content block.
 //        -> Claude vision reads the receipt, returns FOOD line items only
 //           (garbage bags, etc. are dropped) for the user to review/edit.
 //   POST /api/receipts         { store, date, items:[] }
@@ -35,6 +37,23 @@ export default async (req) => {
     if (req.method === 'POST' && seg === 'parse') {
       if (!hasClaude()) return bad('Receipt scanning needs ANTHROPIC_API_KEY to be configured.', 503)
       const { imageBase64, mediaType, store } = await req.json()
+      const type = (mediaType || 'image/jpeg').toLowerCase()
+      const isPDF = type === 'application/pdf'
+
+      // Claude reads images and PDFs, but through different content blocks —
+      // sending a PDF as an "image" is rejected outright.
+      const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+      if (!isPDF && !IMAGE_TYPES.includes(type)) {
+        return bad(
+          `Can't read ${type} files. Use a PDF, JPEG, PNG, GIF or WebP — ` +
+          'an iPhone HEIC photo usually needs converting first (screenshot it, or export as JPEG).'
+        )
+      }
+
+      const source = { type: 'base64', media_type: type, data: imageBase64 }
+      const block = isPDF
+        ? { type: 'document', source }
+        : { type: 'image', source }
       if (!imageBase64) return bad('No image provided.')
 
       const parsed = await claudeJSON({
@@ -44,10 +63,7 @@ export default async (req) => {
           {
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 },
-              },
+              block,
               {
                 type: 'text',
                 text: store ? `This receipt is from ${store}. Extract the items.` : 'Extract the items from this receipt.',

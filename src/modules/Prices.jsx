@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { usePersistentState } from '../lib/persist.jsx'
 import { mapPool } from '../lib/pool.js'
+import { prepareReceiptFile } from '../lib/receiptFile.js'
 import { Banner, Loading, Empty, Toast, Modal, Spinner } from '../components/ui.jsx'
 import { money, fromNow } from '../lib/util.js'
 
@@ -247,14 +248,6 @@ function ReceiptPrice({ onClose, onSaved }) {
   const [progress, setProgress] = useState(null) // { done, total }
   const [error, setError] = useState('')
 
-  const toBase64 = (file) =>
-    new Promise((res, rej) => {
-      const r = new FileReader()
-      r.onload = () => res(String(r.result))
-      r.onerror = rej
-      r.readAsDataURL(file)
-    })
-
   const onFiles = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
@@ -267,10 +260,10 @@ function ReceiptPrice({ onClose, onSaved }) {
     const results = await mapPool(
       files,
       async (file) => {
-        const dataUrl = await toBase64(file)
-        const [meta, b64] = dataUrl.split(',')
-        const mediaType = meta.match(/data:(.*?);/)?.[1] || 'image/jpeg'
-        const d = await api.parseReceipt({ imageBase64: b64, mediaType, store })
+        // PDFs go through as-is; photos get converted to JPEG and downsized so
+        // odd camera formats work and uploads stay quick.
+        const { base64, mediaType } = await prepareReceiptFile(file)
+        const d = await api.parseReceipt({ imageBase64: base64, mediaType, store })
         return { file, d }
       },
       { concurrency: 3, onProgress: (done, total) => setProgress({ done, total }) }
@@ -283,7 +276,7 @@ function ReceiptPrice({ onClose, onSaved }) {
     let firstDate = null
 
     results.forEach((r, i) => {
-      if (!r?.ok) { failures.push(files[i].name); return }
+      if (!r?.ok) { failures.push(`${files[i].name}${r?.error?.message ? ` (${r.error.message})` : ''}`); return }
       const { file, d } = r.value
       if (d.store && !firstStore) firstStore = d.store
       if (d.date && !firstDate) firstDate = d.date
@@ -340,12 +333,22 @@ function ReceiptPrice({ onClose, onSaved }) {
           <label className="btn btn-primary btn-block" style={{ cursor: 'pointer' }}>
             {busy
               ? <><Spinner /> Reading {progress ? `${progress.done}/${progress.total}` : ''}…</>
-              : '📷 Take photo / upload receipts'}
-            <input type="file" accept="image/*,application/pdf" capture="environment" multiple hidden onChange={onFiles} disabled={busy} />
+              : '📄 Upload receipts (PDF or photo)'}
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,image/*"
+              multiple hidden onChange={onFiles} disabled={busy}
+            />
           </label>
+          <label className="btn btn-ghost btn-block" style={{ cursor: 'pointer', marginTop: 8 }}>
+            📷 Take a photo instead
+            <input type="file" accept="image/*" capture="environment" hidden onChange={onFiles} disabled={busy} />
+          </label>
+
           <p className="muted" style={{ fontSize: 13 }}>
-            You can select several at once — handy for a folder of receipts pulled from your
-            statement. Non-food (paper towels, etc.) is dropped automatically, and you review
+            <strong>PDF, JPEG, PNG, GIF or WebP</strong> — several at once is fine. Walmart lets you
+            download a PDF receipt from your order history, and those read far more accurately than
+            a photo. Non-food (paper towels, etc.) is dropped automatically, and you review
             everything before it's saved.
           </p>
         </>
