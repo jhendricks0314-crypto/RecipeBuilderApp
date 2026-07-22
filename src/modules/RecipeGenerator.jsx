@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api.js'
-import { generate as runGenerate } from '../lib/generate.js'
+import { generate as runGenerate } from '../lib/task.js'
 import { useAuth } from '../lib/auth.jsx'
 import { usePersistentState } from '../lib/persist.jsx'
 import { Banner, Spinner, RecipeIcon } from '../components/ui.jsx'

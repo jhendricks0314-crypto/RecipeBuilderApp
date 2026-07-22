@@ -3,6 +3,7 @@ import { api } from '../lib/api.js'
 import { usePersistentState } from '../lib/persist.jsx'
 import { mapPool } from '../lib/pool.js'
 import { prepareReceiptFile } from '../lib/receiptFile.js'
+import { parseReceipt as runParseReceipt } from '../lib/task.js'
 import { Banner, Loading, Empty, Toast, Modal, Spinner } from '../components/ui.jsx'
 import { money, fromNow } from '../lib/util.js'
 
@@ -263,7 +264,7 @@ function ReceiptPrice({ onClose, onSaved }) {
         // PDFs go through as-is; photos get converted to JPEG and downsized so
         // odd camera formats work and uploads stay quick.
         const { base64, mediaType } = await prepareReceiptFile(file)
-        const d = await api.parseReceipt({ imageBase64: base64, mediaType, store })
+        const d = await runParseReceipt({ imageBase64: base64, mediaType, store })
         return { file, d }
       },
       { concurrency: 3, onProgress: (done, total) => setProgress({ done, total }) }
