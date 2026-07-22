@@ -41,16 +41,25 @@ export default async (req) => {
       for (const it of items) {
         if (!it.name?.trim()) continue
         const rid = id('ri_')
+        const price = Number(it.price) || 0
+        const qty = Number(it.quantity) || 1
+        // Fall back to price / quantity, NOT the line total — for something
+        // bought by weight (2.16 lb for $4.04) the total is not what one unit
+        // costs, and shopping lists scale from the unit price.
+        const unitPrice = Number(it.unitPrice) > 0
+          ? Number(it.unitPrice)
+          : Math.round((price / qty) * 100) / 100
+
         await writeJSON(S.receiptItems(), rid, {
           id: rid,
           name: it.name.trim(),
           store: store.trim(),
           date: day,
-          price: Number(it.price) || 0,
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) || Number(it.price) || 0,
+          price,
+          quantity: qty,
+          unitPrice,
           barcode: it.barcode || null,
-          unit: it.unit || '',
+          unit: (it.unit || 'each').trim(),
           source: 'receipt',
           contributedBy: user.email,
           createdAt: new Date().toISOString(),

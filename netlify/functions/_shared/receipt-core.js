@@ -9,10 +9,31 @@ const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
 const SYSTEM = `You read a grocery receipt and extract its line items.
 Return ONLY JSON: { "store": string|null, "date": string|null, "items": [ ... ] }.
-Each item: { "name": string, "price": number, "quantity": number, "unitPrice": number, "barcode": string|null, "isFood": boolean }.
+Each item: { "name": string, "price": number, "quantity": number, "unit": string, "unitPrice": number, "barcode": string|null, "isFood": boolean }.
 - "isFood" is true only for edible grocery items. Non-food (bags, paper towels, cleaning supplies, batteries) -> false.
 - "barcode": many receipts print the item's UPC as a ~12-digit number beside the name. Copy it exactly if present, else null. Never use the long transaction/TC barcode from the bottom.
-- If quantity is unclear use 1. unitPrice = price / quantity.
+CAPTURE HOW THE ITEM IS PRICED — this matters as much as the total.
+
+Weight- or volume-priced items print the rate on a second line. Walmart writes it as
+"<amount> <unit> @ 1.0 <unit> /<rate>" with the line total on the right. For example:
+
+    RED GRAPE     085495700100 F
+       2.16 lb @ 1.0 lb /1.87        4.04
+
+That is 2.16 lb bought at $1.87 per pound, totalling $4.04. Return it as:
+  { "name": "Red Grapes", "price": 4.04, "quantity": 2.16, "unit": "1 lb", "unitPrice": 1.87, ... }
+
+Rules for these three fields:
+- "price"     = the line total actually charged (the right-hand number).
+- "quantity"  = how much was bought (2.16 for the grapes; 1 for a plain single item).
+- "unit"      = what ONE unit of "unitPrice" buys: "1 lb", "1 oz", "1 kg", "1 gal", or "each"
+                for anything sold by the piece. Never leave this blank.
+- "unitPrice" = the price of ONE such unit (1.87 per lb). For a plain item it equals "price".
+
+Other cases:
+- "3 @ 1.50" style multi-buys: quantity 3, unit "each", unitPrice 1.50, price 4.50.
+- A plain line with one number: quantity 1, unit "each", unitPrice = price.
+- The same product printed on several lines is several separate purchases — return each line.
 - Expand abbreviated names into readable ones ("GV MLK 2%" -> "Great Value Milk 2%").
 - "date" as YYYY-MM-DD if visible, else null.
 Include ALL items with correct isFood flags; the app filters them.`
@@ -61,6 +82,10 @@ export async function parseReceipt({ imageBase64, mediaType, store }, { timeoutM
       name: i.name,
       price: Number(i.price) || 0,
       quantity: Number(i.quantity) || 1,
+      // What one unit costs, and what that unit is. Shopping lists scale from
+      // this — 3 lbs of grapes at $1.87/lb rather than the $4.04 that happened
+      // to be on this receipt.
+      unit: (i.unit || '').trim() || 'each',
       unitPrice: Number(i.unitPrice) || Number(i.price) || 0,
       barcode: /^\d{8,14}$/.test(String(i.barcode || '').trim()) ? String(i.barcode).trim() : null,
     }))

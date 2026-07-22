@@ -308,7 +308,13 @@ function ReceiptPrice({ onClose, onSaved }) {
         const dt = it._date || date
         const key = `${st}|${dt}`
         if (!groups.has(key)) groups.set(key, { store: st, date: dt, items: [] })
-        groups.get(key).items.push({ name: it.name, price: Number(it.price), quantity: Number(it.quantity) || 1 })
+        groups.get(key).items.push({
+          name: it.name,
+          price: Number(it.price),
+          quantity: Number(it.quantity) || 1,
+          unit: (it.unit || 'each').trim(),
+          unitPrice: Number(it.unitPrice) || undefined,   // let the server derive it if blank
+        })
       }
       let total = 0
       for (const g of groups.values()) {
@@ -384,6 +390,25 @@ function ReceiptPrice({ onClose, onSaved }) {
                   onChange={(e) => setItems((xs) => xs.map((x, k) => (k === i ? { ...x, price: e.target.value } : x)))} />
                 <button className="linklike tomato" onClick={() => setItems((xs) => xs.filter((_, k) => k !== i))}>×</button>
               </div>
+              {/* How it's priced. Weight-priced items ("2.16 lb @ $1.87/lb")
+                  need the rate, not the line total, or a recipe calling for
+                  3 lbs would be costed from whatever happened to be bought. */}
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, alignItems: 'center' }}>
+                <input className="input" style={{ padding: '5px 9px', fontSize: 12.5, width: 74 }}
+                  type="number" step="0.01" value={it.quantity ?? 1} aria-label="Quantity bought"
+                  onChange={(e) => setItems((xs) => xs.map((x, k) => (k === i ? { ...x, quantity: e.target.value } : x)))} />
+                <span className="muted" style={{ fontSize: 12 }}>×</span>
+                <input className="input" style={{ padding: '5px 9px', fontSize: 12.5, width: 84 }}
+                  type="number" step="0.01" value={it.unitPrice ?? ''} aria-label="Price per unit"
+                  onChange={(e) => setItems((xs) => xs.map((x, k) => (k === i ? { ...x, unitPrice: e.target.value } : x)))} />
+                <span className="muted" style={{ fontSize: 12 }}>per</span>
+                <input className="input" style={{ padding: '5px 9px', fontSize: 12.5, width: 78 }}
+                  list="fc-receipt-units" value={it.unit || 'each'} aria-label="Unit"
+                  onChange={(e) => setItems((xs) => xs.map((x, k) => (k === i ? { ...x, unit: e.target.value } : x)))} />
+                {it.unit && it.unit !== 'each' && (
+                  <span className="tag" style={{ fontSize: 10.5 }}>by {it.unit.replace(/^1\s*/, '')}</span>
+                )}
+              </div>
               {(it._store || it._date) && (
                 <div className="muted" style={{ fontSize: 11 }}>
                   {it._store || store}{it._date ? ` · ${it._date}` : ''}
@@ -391,7 +416,10 @@ function ReceiptPrice({ onClose, onSaved }) {
               )}
             </div>
           ))}
-          <button className="linklike" onClick={() => setItems((xs) => [...xs, { name: '', price: '', quantity: 1 }])}>+ add row</button>
+          <datalist id="fc-receipt-units">
+            {['each', '1 lb', '1 oz', '1 kg', '1 gal', '1 qt', '64 fl oz', 'dozen'].map((u) => <option key={u} value={u} />)}
+          </datalist>
+          <button className="linklike" onClick={() => setItems((xs) => [...xs, { name: '', price: '', quantity: 1, unit: 'each', unitPrice: '' }])}>+ add row</button>
 
           <div className="btn-row" style={{ marginTop: 14 }}>
             <button className="btn btn-primary" onClick={commit} disabled={busy || !store.trim()}>
